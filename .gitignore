@@ -35,6 +35,5 @@ mobile/android/key.properties
 # --- not on GitHub for now (frontend-only upload) ---
 docs/
 mobile/test/
-# backend: only the empty folder is uploaded (placeholder file .gitkeep)
-backend/*
-!backend/.gitkeep
+# backend tests stay local for now
+backend/tests/
