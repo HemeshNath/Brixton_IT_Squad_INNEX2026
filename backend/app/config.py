@@ -36,9 +36,16 @@ class Settings(BaseSettings):
 
     # AlienVault OTX.
     otx_api_key: str = ""
-    otx_timeout_seconds: float = 4.0
+    # A slow OTX call keeps running in the background up to this long and fills the cache;
+    # the check itself never waits longer than check_timeout_seconds.
+    otx_timeout_seconds: float = 15.0
     otx_daily_limit: int = 5000
     otx_cache_hours: int = 24
+
+    # Domain age (RDAP/WHOIS). Like OTX, slow lookups finish in the background and fill the cache.
+    whois_enabled: bool = True
+    whois_timeout_seconds: float = 10.0
+    domain_cache_days: int = 7
 
     rate_limit: str = "60/minute"
     check_timeout_seconds: float = 6.0

@@ -96,14 +96,31 @@ class KnownScam(Base):
 
 
 class OtxCache(Base):
-    """AlienVault OTX result per IP, reused for otx_cache_hours (Phase 5)."""
+    """AlienVault OTX answer per IP or domain, reused for otx_cache_hours (Phase 4).
+    One row per OTX call, so counting today's rows also counts today's OTX calls (daily limit)."""
 
     __tablename__ = "otx_cache"
 
-    ip: Mapped[str] = mapped_column(String(45), primary_key=True)
+    indicator: Mapped[str] = mapped_column(String(270), primary_key=True)  # "ip:1.2.3.4" or "domain:example.com"
+    kind: Mapped[str] = mapped_column(String(8))  # ip | domain
     country: Mapped[str | None] = mapped_column(String(2), nullable=True)
     pulse_count: Mapped[int] = mapped_column(Integer, default=0)
+    whitelisted: Mapped[bool] = mapped_column(default=False)  # OTX marks well-known safe indicators
     result: Mapped[dict] = mapped_column(JSON, default=dict)
+    checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
+class DomainCache(Base):
+    """Domain registration data from RDAP/WHOIS, reused for domain_cache_days (Phase 5).
+    source "none" = no public data (e.g. most .np domains) -> age unknown, never counted as risky."""
+
+    __tablename__ = "domain_cache"
+
+    domain: Mapped[str] = mapped_column(String(255), primary_key=True)
+    registered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    registrar: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    source: Mapped[str] = mapped_column(String(8), default="none")  # rdap | whois | none
     checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 

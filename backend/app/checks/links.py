@@ -27,10 +27,18 @@ class Reason:
 @dataclass
 class LinkResult:
     url: str
-    domain: str
+    domain: str  # registered domain, e.g. esewa-kyc.xyz (or the IP for IP links)
     trusted: bool = False
     organization: str | None = None
     reasons: list[Reason] = field(default_factory=list)
+    host: str = ""  # full host name, e.g. login.esewa-kyc.xyz (used for the DNS lookup)
+    # Filled by the reputation checks (Phase 4, link_reputation.py):
+    ip: str | None = None
+    country: str | None = None  # server country from OTX - information only, adds no points
+    otx_reports: int | None = None
+    shared_hosting: bool = False  # server IP is a shared CDN/hosting network
+    domain_age_days: int | None = None  # filled by the domain-age check (Phase 5); None = unknown
+    registrar: str | None = None
 
     @property
     def points(self) -> int:
@@ -87,7 +95,7 @@ def analyze_url(raw_url: str) -> LinkResult | None:
         is_ip = False
 
     if is_ip:
-        result = LinkResult(url=raw_url, domain=host)
+        result = LinkResult(url=raw_url, domain=host, host=host)
         result.reasons.append(Reason("IP_HOST", "Link uses a bare IP address instead of a name", 25))
         if parts.scheme == "http":
             result.reasons.append(Reason("NO_HTTPS", "Link is not secure (no HTTPS)", 10))
@@ -97,7 +105,7 @@ def analyze_url(raw_url: str) -> LinkResult | None:
     if not ext.suffix or not ext.domain:
         return None
     registered = f"{ext.domain}.{ext.suffix}"
-    result = LinkResult(url=raw_url, domain=registered)
+    result = LinkResult(url=raw_url, domain=registered, host=host)
 
     org = _trusted_match(host, registered)
     if org:
