@@ -1,0 +1,40 @@
+# Files Git must never upload (secrets, caches, build output) and parts of the
+# project that are kept local for now.
+
+# --- secrets ---
+.env
+*.env
+!.env.example
+*firebase-adminsdk*.json
+service-account*.json
+mobile/android/app/google-services.json
+
+# --- python ---
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.coverage
+*.db
+*.sqlite3
+*.log
+
+# --- flutter / android ---
+mobile/.dart_tool/
+mobile/build/
+mobile/.flutter-plugins*
+mobile/android/.gradle/
+mobile/android/.kotlin/
+mobile/android/local.properties
+mobile/android/key.properties
+*.jks
+*.keystore
+.idea/
+*.iml
+
+# --- not on GitHub for now (frontend-only upload) ---
+docs/
+mobile/test/
+# backend: only the empty folder is uploaded (placeholder file .gitkeep)
+backend/*
+!backend/.gitkeep

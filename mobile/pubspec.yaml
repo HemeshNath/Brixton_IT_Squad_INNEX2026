@@ -1,0 +1,28 @@
+# Flutter package definition for the CheckScam Android app: name, version and dependencies.
+# After changing dependencies run: flutter pub get
+name: checkscam
+description: "CheckScam - checks incoming SMS for scams before you read them (Nepal)."
+publish_to: 'none' # private app, never published to pub.dev
+
+# version name + build number (shown as versionName / versionCode on Android)
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.13.7
+
+dependencies:
+  firebase_auth: ^7.1.0
+  firebase_core: ^5.2.0
+  flutter:
+    sdk: flutter
+  google_sign_in: ^7.2.0
+  http: ^1.6.0               # calls to the CheckScam backend API
+  shared_preferences: ^2.5.6 # saved settings, also read by the Kotlin listener
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0      # recommended lint rules (see analysis_options.yaml)
+
+flutter:
+  uses-material-design: true
