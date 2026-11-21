@@ -1,3 +1,5 @@
+Team name: Brixton IT Squad
+
 Team Members:
 1. Himesh Nath (Leader)
 2. Avinab Chand
