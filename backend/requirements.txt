@@ -11,8 +11,16 @@ alembic>=1.13
 psycopg[binary]>=3.2   # Supabase Postgres driver
 firebase-admin>=6.5
 
+# MIRA v1 decision model (Phase 6). Install the small CPU-only PyTorch FIRST, then this file:
+#   pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
+#   pip install -r requirements.txt
+# Then download the model once (about 570 MB, set HF_HOME to a drive with space):
+#   python -c "from huggingface_hub import snapshot_download; snapshot_download('sagea-ai/Mira-v1')"
+torch>=2.4
+transformers>=4.48     # ModernBERT support
+huggingface_hub>=0.25
+
 # Added in later phases (see docs/DEVELOPMENT_PLAN.md):
-# Phase 4:  torch (CPU), transformers, huggingface_hub
 # Phase 11: slowapi
 
 # Tests

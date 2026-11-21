@@ -1,0 +1,39 @@
+{
+  "_note": "How the final score is made (Phase 8). Change numbers here - no code change. Raise 'version' on every change; it is saved with every check. Tuned with real data in phase L1.",
+  "version": "s2",
+  "cutoffs": {
+    "_note": "score 0..safe_max = Safe, ..suspicious_max = Suspicious, above = Dangerous",
+    "safe_max": 30,
+    "suspicious_max": 60
+  },
+  "mira": {
+    "_note": "MIRA points = scam_weight*P(scam) + spam_weight*P(ad) + question_scale*question points; can be negative for clearly normal messages",
+    "scam_weight": 60,
+    "spam_weight": 10,
+    "question_scale": 1.0,
+    "not_sure_factor": 0.5,
+    "trusted_sender_factor": 0.5,
+    "min_points": -20,
+    "max_points": 50,
+    "_note_max_points": "s2: MIRA alone can add at most max_points, so on its own it can reach Suspicious but never Dangerous - Dangerous always needs a fact (bad link, OTX, new domain, brand mismatch, OTP request)."
+  },
+  "domain_age": {
+    "under_7_days": 35,
+    "under_30_days": 25,
+    "under_90_days": 15
+  },
+  "otx": {
+    "one_or_two_reports": 20,
+    "three_or_more_reports": 35
+  },
+  "rules": {
+    "asks_secret": 15,
+    "brand_mismatch": 30,
+    "gambling_words": 15
+  },
+  "hard_rules": {
+    "_note": "otp_and_unofficial_link: asks for OTP/PIN and has a non-official link -> at least Dangerous. trusted_sender_official_only: registered company sender, only official links (or none), asks for nothing -> at most Safe.",
+    "otp_and_unofficial_link": true,
+    "trusted_sender_official_only": true
+  }
+}

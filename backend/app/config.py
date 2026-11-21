@@ -28,11 +28,14 @@ class Settings(BaseSettings):
     # Firebase service-account JSON path (used to verify ID tokens).
     firebase_credentials: str = ""
 
-    # MIRA v1 decision model (Hugging Face).
+    # MIRA v1 decision model (Hugging Face, Apache-2.0). Loaded in the background at server start.
     mira_enabled: bool = True
     mira_model_id: str = "sagea-ai/Mira-v1"
-    mira_revision: str = "main"  # pin to a commit hash once tested
-    mira_timeout_seconds: float = 3.0
+    mira_revision: str = "610544ecbcf6e7c0103c9b75543dcaab7ec0739d"  # pinned: the version we tested
+    mira_timeout_seconds: float = 5.0  # the phone waits up to 8 s for the whole check
+    mira_not_sure_below: float = 0.5  # top answer probability below this -> "not sure"
+    mira_local_only: bool = True  # never download at start-up; model must already be in the cache
+    hf_home: str = ""  # Hugging Face cache folder, e.g. D:\hf_cache (empty = HF_HOME env var / default)
 
     # AlienVault OTX.
     otx_api_key: str = ""
@@ -46,6 +49,9 @@ class Settings(BaseSettings):
     whois_enabled: bool = True
     whois_timeout_seconds: float = 10.0
     domain_cache_days: int = 7
+
+    # Time budget per check: the phone waits at most 8 s. Links get this long, then MIRA mira_timeout_seconds.
+    link_checks_timeout_seconds: float = 2.0
 
     rate_limit: str = "60/minute"
     check_timeout_seconds: float = 6.0

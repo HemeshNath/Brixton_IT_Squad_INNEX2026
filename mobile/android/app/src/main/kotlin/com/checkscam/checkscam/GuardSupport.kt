@@ -118,7 +118,7 @@ object ApiClient {
             conn = (URL(cfg.apiBaseUrl.trimEnd('/') + "/check/sms").openConnection() as HttpURLConnection).apply {
                 requestMethod = "POST"
                 connectTimeout = 3000
-                readTimeout = 5000
+                readTimeout = 8000 // the server check takes up to ~7 s (links 2 s + MIRA 5 s)
                 doOutput = true
                 setRequestProperty("Content-Type", "application/json")
                 if (token != null) setRequestProperty("Authorization", "Bearer $token")

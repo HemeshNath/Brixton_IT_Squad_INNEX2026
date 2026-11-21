@@ -9,6 +9,7 @@ class HealthOut(BaseModel):
     status: str
     version: str
     mira_loaded: bool
+    mira_status: str  # disabled | not_started | loading | ready | failed
     model_version: str | None
 
 
@@ -19,6 +20,7 @@ def health(request: Request) -> HealthOut:
     return HealthOut(
         status="ok",
         version=request.app.state.settings.version,
-        mira_loaded=mira is not None,
-        model_version=getattr(mira, "version", None),
+        mira_loaded=bool(mira and mira.ready),
+        mira_status=mira.status if mira else "disabled",
+        model_version=mira.version if mira else None,
     )

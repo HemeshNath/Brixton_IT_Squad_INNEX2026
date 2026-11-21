@@ -14,6 +14,7 @@ from datetime import datetime, timedelta, timezone
 
 import httpx
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
 from ..db import OtxCache
@@ -69,10 +70,13 @@ def parse_general(kind: str, value: str, data: dict) -> OtxInfo:
 
 
 def otx_points(reports: int) -> int:
-    """1-2 OTX threat reports +20, 3 or more +35."""
+    """Points from scoring.json (defaults: 1-2 OTX threat reports +20, 3 or more +35)."""
+    from .rules import scoring_config  # local import avoids a cycle at import time
+
     if reports <= 0:
         return 0
-    return 20 if reports <= 2 else 35
+    pts = scoring_config().otx
+    return int(pts["one_or_two_reports"] if reports <= 2 else pts["three_or_more_reports"])
 
 
 class OtxClient:
@@ -141,10 +145,16 @@ class OtxClient:
                 except ValueError:
                     raise OtxUnavailable("error") from None
 
-            session.merge(OtxCache(
-                indicator=key, kind=kind, country=info.country, pulse_count=info.pulse_count,
-                whitelisted=info.whitelisted, result={"pulse_names": info.pulse_names, "asn": info.asn},
-                checked_at=datetime.now(timezone.utc),
-            ))
-            session.commit()
+            try:
+                session.merge(OtxCache(
+                    indicator=key, kind=kind, country=info.country, pulse_count=info.pulse_count,
+                    whitelisted=info.whitelisted, result={"pulse_names": info.pulse_names, "asn": info.asn},
+                    checked_at=datetime.now(timezone.utc),
+                ))
+                session.commit()
+            except IntegrityError:  # a parallel lookup of the same indicator saved it first - fine
+                session.rollback()
+            except OperationalError:  # database connection problem: keep the answer, skip caching it
+                session.rollback()
+                log.warning("could not save the OTX answer to the cache")
             return info

@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 import httpx
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
 from ..db import DomainCache
@@ -163,11 +164,17 @@ class DomainAgeClient:
                                      row.source, from_cache=True)
 
             info = self._fetch(domain)
-            session.merge(DomainCache(
-                domain=domain, registered_at=info.registered_at, expires_at=info.expires_at,
-                registrar=info.registrar, source=info.source, checked_at=datetime.now(timezone.utc),
-            ))
-            session.commit()
+            try:
+                session.merge(DomainCache(
+                    domain=domain, registered_at=info.registered_at, expires_at=info.expires_at,
+                    registrar=info.registrar, source=info.source, checked_at=datetime.now(timezone.utc),
+                ))
+                session.commit()
+            except IntegrityError:  # a parallel lookup of the same domain saved it first - fine
+                session.rollback()
+            except OperationalError:  # database connection problem: keep the answer, skip caching it
+                session.rollback()
+                log.warning("could not save the domain age to the cache")
             return info
 
     def _fetch(self, domain: str) -> DomainAge:
@@ -215,11 +222,17 @@ def _utc(dt: datetime | None) -> datetime | None:
 
 
 def age_points(age_days: int | None) -> tuple[int, str | None]:
-    """Under 7 days +35, under 30 days +25 (replaces the 7-day rule). Unknown -> 0."""
+    """Points for a young domain from scoring.json (defaults: < 7 days +35, < 30 days +25, < 90 days +15;
+    only the highest level counts). Unknown age -> 0, never risky."""
+    from .rules import scoring_config  # local import: rules -> links, avoids a cycle at import time
+
     if age_days is None:
         return 0, None
+    pts = scoring_config().domain_age
     if age_days < 7:
-        return 35, "NEW_DOMAIN_7"
+        return int(pts["under_7_days"]), "NEW_DOMAIN_7"
     if age_days < 30:
-        return 25, "NEW_DOMAIN_30"
+        return int(pts["under_30_days"]), "NEW_DOMAIN_30"
+    if age_days < 90:
+        return int(pts["under_90_days"]), "NEW_DOMAIN_90"
     return 0, None

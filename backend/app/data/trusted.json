@@ -40,7 +40,8 @@
     "google.com": "Google",
     "facebook.com": "Facebook",
     "youtube.com": "YouTube",
-    "whatsapp.com": "WhatsApp"
+    "whatsapp.com": "WhatsApp",
+    "connectips.com": "connectIPS"
   },
   "brand_keywords": [
     "esewa",
@@ -149,5 +150,65 @@
     "AS32934",
     "AS22612",
     "AS46606"
-  ]
+  ],
+  "_note_brand_mentions": "Company names to look for in the message text (Phase 8 brand-mismatch rule): if the message mentions one of these but its links are not that company's official site (trusted_domains), the message gets extra risk.",
+  "brand_mentions": {
+    "eSewa": [
+      "esewa",
+      "e-sewa",
+      "ई-सेवा",
+      "इसेवा",
+      "इ-सेवा"
+    ],
+    "Khalti": [
+      "khalti",
+      "खल्ती"
+    ],
+    "IME Pay": [
+      "imepay",
+      "ime pay"
+    ],
+    "Fonepay": [
+      "fonepay"
+    ],
+    "connectIPS": [
+      "connectips",
+      "connect ips",
+      "कनेक्ट आईपीएस",
+      "कनेक्ट आइपीएस"
+    ],
+    "Nepal Telecom": [
+      "nepal telecom",
+      "ntc",
+      "नेपाल टेलिकम"
+    ],
+    "Ncell": [
+      "ncell",
+      "एनसेल"
+    ],
+    "Nabil Bank": [
+      "nabil"
+    ],
+    "Rastriya Banijya Bank": [
+      "rbb",
+      "rastriya banijya",
+      "राष्ट्रिय बाणिज्य"
+    ],
+    "NIC Asia Bank": [
+      "nic asia",
+      "nicasia"
+    ],
+    "Global IME Bank": [
+      "global ime"
+    ],
+    "Daraz": [
+      "daraz",
+      "दराज"
+    ],
+    "Nepal Police": [
+      "nepal police",
+      "cyber bureau",
+      "नेपाल प्रहरी"
+    ]
+  }
 }

@@ -1,0 +1,124 @@
+{
+  "_note": "How we ask MIRA (Phase 7). Change wording, options, questions or weights here - no code change. Raise 'version' on every change; it is saved with every check. Tuned with real data in phase L1.",
+  "version": "v2",
+  "not_sure_below": 0.5,
+  "template": {
+    "sender": "SMS from: {sender}",
+    "message": "Message: \"{message}\"",
+    "link_official": "Link {n} ({domain}): official site of {organization}.",
+    "link_unofficial": "Link {n} ({domain}): NOT an official site of a known company.",
+    "link_facts": " Facts: {facts}.",
+    "no_links": "Links: none",
+    "asks": "The message asks the reader to: {asks}.",
+    "signals": "Other signals: {signals}.",
+    "question": "{state}\nQuestion: {question}"
+  },
+  "phrases": {
+    "sender_unknown": "unknown sender",
+    "sender_mobile": "a mobile number (not a company sender ID)",
+    "sender_company": "the registered company sender ID \"{sender}\"",
+    "sender_name": "the sender name \"{sender}\" (not a known company sender ID)",
+    "age": "domain registered {days} {day_word} ago",
+    "age_unknown": "domain age could not be checked",
+    "otx_reports": "{count} threat report(s) in AlienVault OTX",
+    "otx_none": "no threat reports in AlienVault OTX",
+    "otx_unknown": "threat reports could not be checked",
+    "asks_nothing": "nothing specific",
+    "ask_click": "click a link",
+    "ask_secret": "send or enter an OTP, PIN or password",
+    "ask_money": "send or pay money",
+    "signal_prize": "mentions a prize, gift, cashback or lottery",
+    "signal_urgent": "uses urgency or threats (blocked, suspended, urgent, today)"
+  },
+  "options": [
+    {
+      "id": "scam_bank_kyc",
+      "label": "scam",
+      "reason": "fake bank, eSewa or KYC message",
+      "text": "A fake bank, eSewa, Khalti or KYC message that asks to click a link, update details or share an OTP"
+    },
+    {
+      "id": "scam_prize",
+      "label": "scam",
+      "reason": "fake prize, gift or lottery",
+      "text": "A fake prize, gift, cashback, anniversary offer or lottery win"
+    },
+    {
+      "id": "scam_job",
+      "label": "scam",
+      "reason": "fake job, visa or loan offer",
+      "text": "A fake job, foreign visa, work-from-home or loan offer that asks for a fee or documents"
+    },
+    {
+      "id": "scam_relative",
+      "label": "scam",
+      "reason": "someone pretending to be a friend or relative asking for money",
+      "text": "Someone pretending to be a friend or relative in trouble who asks for money urgently"
+    },
+    {
+      "id": "scam_gambling",
+      "label": "scam",
+      "reason": "gambling or betting invitation",
+      "text": "A gambling, betting or casino invitation"
+    },
+    {
+      "id": "scam_investment",
+      "label": "scam",
+      "reason": "fake investment or crypto offer",
+      "text": "A fake investment, crypto or 'double your money' offer"
+    },
+    {
+      "id": "scam_threat",
+      "label": "scam",
+      "reason": "fake threat about an account, page or police case",
+      "text": "A fake threat that an account, page, SIM or police case will block or punish the reader"
+    },
+    {
+      "id": "ad",
+      "label": "spam",
+      "reason": "advertisement",
+      "text": "A real advertisement or offer from a shop, telecom or company"
+    },
+    {
+      "id": "normal_personal",
+      "label": "ham",
+      "reason": "normal personal message",
+      "text": "A normal personal message between friends or family"
+    },
+    {
+      "id": "normal_service",
+      "label": "ham",
+      "reason": "real bank, OTP or service message",
+      "text": "A real bank alert, OTP code, delivery update or service notification"
+    }
+  ],
+  "questions": [
+    {
+      "id": "asks_secret",
+      "text": "Does this message ask for an OTP, PIN, password or card number?",
+      "weight_yes": 15
+    },
+    {
+      "id": "asks_money",
+      "text": "Does this message ask the reader to send or pay money or a fee?",
+      "weight_yes": 10
+    },
+    {
+      "id": "claims_prize",
+      "text": "Does this message say the reader won a prize, gift, cashback or lottery?",
+      "weight_yes": 10
+    },
+    {
+      "id": "impersonates",
+      "text": "Does this message pretend to be a bank, eSewa, telecom company or government office?",
+      "weight_yes": 10
+    },
+    {
+      "id": "normal_chat",
+      "text": "Is this a normal personal conversation between people who know each other?",
+      "weight_yes": -15
+    }
+  ],
+  "_note_v2": "v2 (speed): 5 questions instead of 10, and the yes/no questions read only the message (the main question still reads the full prompt with link/OTX/domain-age facts).",
+  "questions_read": "message"
+}

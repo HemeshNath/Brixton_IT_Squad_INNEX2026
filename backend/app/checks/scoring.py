@@ -1,29 +1,39 @@
-"""Combine model probabilities and rule findings into a score, verdict, reasons and
-suggestion. Pure function so every boundary can be unit tested."""
+"""Scoring v2 (Phase 8): turns all findings into a score 0-100, a verdict, reasons and advice.
+Every number comes from app/data/scoring.json (version saved with each check).
+
+Parts of the score:
+  MIRA        scam_weight*P(scam) + spam_weight*P(ad) + question points (can be negative)
+  links       the worst link's rule / OTX / domain-age points (one bad link counts, not the sum of all)
+  rules       asks for OTP/PIN, brand mismatch, gambling words
+  hard rules  OTP request + non-official link -> at least Dangerous;
+              registered company sender + only official links + asks nothing -> at most Safe
+Pure function, so every boundary can be unit tested."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from .links import LinkResult, Reason
-
-SAFE_MAX = 30
-SUSPICIOUS_MAX = 60
-SECRET_REQUEST_POINTS = 15
-SPAM_WEIGHT = 30
+from .rules import ScoringConfig, scoring_config
 
 
 @dataclass
 class ScoreInput:
-    probabilities: dict[str, float] | None  # None when the model is unavailable
+    probabilities: dict[str, float] | None  # MIRA scam/spam/ham; None when MIRA was skipped
     links: list[LinkResult]
     sender_trusted: bool = False
     asks_secret: bool = False
+    question_points: float = 0.0  # from MIRA's yes/no questions
+    scam_type: str | None = None  # e.g. "fake prize, gift or lottery"
+    not_sure: bool = False
+    brand_mismatch: list[str] = field(default_factory=list)
+    gambling: bool = False
 
 
-def verdict_for(score: int) -> str:
-    if score <= SAFE_MAX:
+def verdict_for(score: int, cfg: ScoringConfig | None = None) -> str:
+    cfg = cfg or scoring_config()
+    if score <= cfg.safe_max:
         return "safe"
-    if score <= SUSPICIOUS_MAX:
+    if score <= cfg.suspicious_max:
         return "suspicious"
     return "dangerous"
 
@@ -41,33 +51,50 @@ def _suggestion(verdict: str, has_risky_link: bool, asks_secret: bool) -> str:
     return "No scam signs found. Still, never share your OTP or PIN with anyone."
 
 
-def score_message(inp: ScoreInput) -> dict:
+def _mira_reasons(inp: ScoreInput, cfg: ScoringConfig, risky_links: list[LinkResult]) -> list[Reason]:
+    m = cfg.mira
+    p = inp.probabilities
+    points = m["scam_weight"] * p.get("scam", 0.0) + m["spam_weight"] * p.get("spam", 0.0) + m["question_scale"] * inp.question_points
+    if inp.not_sure:
+        points *= m["not_sure_factor"]
+    if inp.sender_trusted and not risky_links:
+        points *= m["trusted_sender_factor"]
+    # MIRA never decides alone: its points are capped so that on its own it reaches at most Suspicious.
+    points = round(min(m.get("max_points", 100), max(m["min_points"], points)))
+    label = max(p, key=p.get)
+    if label == "scam":
+        what = f"a {inp.scam_type}" if inp.scam_type else "a scam message"
+        reasons = [Reason("MIRA_SCAM", f"The text looks like {what} ({p['scam']:.0%} sure)", points)]
+    elif label == "spam":
+        reasons = [Reason("MIRA_AD", f"The text looks like an advertisement ({p['spam']:.0%} sure)", points)]
+    else:
+        reasons = [Reason("MIRA_NORMAL", f"The text looks like a normal message ({p['ham']:.0%} sure)", points)]
+    if inp.not_sure:
+        reasons.append(Reason("MIRA_NOT_SURE", "The text check was not sure, so it counts less", 0))
+    return reasons
+
+
+def score_message(inp: ScoreInput, cfg: ScoringConfig | None = None) -> dict:
+    cfg = cfg or scoring_config()
     reasons: list[Reason] = []
+    risky_links = [l for l in inp.links if not l.trusted and l.points > 0]
+    unofficial_links = [l for l in inp.links if not l.trusted]
     label = None
 
-    risky_links = [l for l in inp.links if not l.trusted and l.points > 0]
-    model_points = 0
     if inp.probabilities:
-        p_scam = inp.probabilities.get("scam", 0.0)
-        p_spam = inp.probabilities.get("spam", 0.0)
         label = max(inp.probabilities, key=inp.probabilities.get)
-        model_points = round(100 * p_scam + SPAM_WEIGHT * p_spam)
-        if inp.sender_trusted and not risky_links:
-            model_points = round(model_points * 0.5)
-        if p_scam >= 0.5:
-            reasons.append(Reason("MODEL_SCAM", f"Wording matches known scam messages ({p_scam:.0%} sure)", model_points))
-        elif p_spam >= 0.5:
-            reasons.append(Reason("MODEL_SPAM", f"Looks like an advertisement / promotional message ({p_spam:.0%} sure)", model_points))
-        elif model_points > 0:
-            reasons.append(Reason("MODEL_SCORE", "Wording risk from our scam model", model_points))
+        reasons += _mira_reasons(inp, cfg, risky_links)
 
-    # Only the worst link counts, so one message with many links does not explode.
-    if risky_links:
-        worst = max(risky_links, key=lambda l: l.points)
-        reasons.extend(worst.reasons)
+    if risky_links:  # only the worst link counts, so many links do not add up
+        reasons.extend(max(risky_links, key=lambda l: l.points).reasons)
 
     if inp.asks_secret:
-        reasons.append(Reason("ASKS_SECRET", "Message asks you to send or enter an OTP, PIN or password", SECRET_REQUEST_POINTS))
+        reasons.append(Reason("ASKS_SECRET", "Message asks you to send or enter an OTP, PIN or password", cfg.rules["asks_secret"]))
+    for brand in inp.brand_mismatch[:1]:
+        reasons.append(Reason("BRAND_MISMATCH", f"Message mentions {brand} but the link is not {brand}'s official site",
+                              cfg.rules["brand_mismatch"]))
+    if inp.gambling:
+        reasons.append(Reason("GAMBLING_WORDS", "Message invites you to gambling or betting", cfg.rules["gambling_words"]))
 
     for link in inp.links:
         if link.trusted:
@@ -77,11 +104,22 @@ def score_message(inp: ScoreInput) -> dict:
         reasons.append(Reason("TRUSTED_SENDER", "Sender ID belongs to a known company", 0))
 
     score = max(0, min(100, sum(r.points for r in reasons)))
-    verdict = verdict_for(score)
+
+    # Hard rules (decided by facts, never by MIRA alone)
+    if cfg.hard_rules.get("otp_and_unofficial_link") and inp.asks_secret and unofficial_links:
+        if score <= cfg.suspicious_max:
+            score = cfg.suspicious_max + 1
+        reasons.append(Reason("HARD_OTP_LINK", "Asks for an OTP/PIN and links to a site that is not official", 0))
+    elif (cfg.hard_rules.get("trusted_sender_official_only") and inp.sender_trusted and not unofficial_links
+          and not inp.asks_secret and not inp.brand_mismatch):
+        score = min(score, cfg.safe_max)
+
+    verdict = verdict_for(score, cfg)
     return {
         "verdict": verdict,
         "score": score,
         "label": label,
         "reasons": [r.as_dict() for r in reasons],
         "suggestion": _suggestion(verdict, bool(risky_links), inp.asks_secret),
+        "scoring_version": cfg.version,
     }

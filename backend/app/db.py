@@ -133,7 +133,9 @@ def make_engine(database_url: str) -> Engine:
             dbapi_conn.execute("PRAGMA foreign_keys=ON")
 
         return engine
-    return create_engine(database_url, pool_pre_ping=True, pool_size=5, max_overflow=5)
+    # Supabase (pooler) closes idle connections: test each connection before use (pre_ping) and replace
+    # connections older than 5 minutes (recycle), so a dropped connection never fails a check.
+    return create_engine(database_url, pool_pre_ping=True, pool_recycle=300, pool_size=5, max_overflow=5)
 
 
 def make_sessionmaker(engine: Engine) -> sessionmaker[Session]:
