@@ -1,0 +1,63 @@
+{
+  "_note": "Edit this file to change the whitelist / trusted senders. No code change needed.",
+  "trusted_domains": {
+    "esewa.com.np": "eSewa",
+    "khalti.com": "Khalti",
+    "imepay.com.np": "IME Pay",
+    "fonepay.com": "Fonepay",
+    "ntc.net.np": "Nepal Telecom",
+    "ncell.axiata.com": "Ncell",
+    "ncell.com.np": "Ncell",
+    "nea.org.np": "Nepal Electricity Authority",
+    "nrb.org.np": "Nepal Rastra Bank",
+    "nabilbank.com": "Nabil Bank",
+    "nicasiabank.com": "NIC Asia Bank",
+    "globalimebank.com": "Global IME Bank",
+    "nimb.com.np": "Nepal Investment Mega Bank",
+    "himalayanbank.com": "Himalayan Bank",
+    "everestbankltd.com": "Everest Bank",
+    "sanimabank.com": "Sanima Bank",
+    "kumaribank.com": "Kumari Bank",
+    "prabhubank.com": "Prabhu Bank",
+    "laxmisunrise.com": "Laxmi Sunrise Bank",
+    "nepalbank.com.np": "Nepal Bank",
+    "rbb.com.np": "Rastriya Banijya Bank",
+    "adbl.gov.np": "Agricultural Development Bank",
+    "daraz.com.np": "Daraz",
+    "pathao.com": "Pathao",
+    "foodmandu.com": "Foodmandu",
+    "gov.np": "Government of Nepal",
+    "nepalpolice.gov.np": "Nepal Police",
+    "cyberbureau.nepalpolice.gov.np": "Nepal Police Cyber Bureau",
+    "ird.gov.np": "Inland Revenue Department",
+    "nepalpassport.gov.np": "Department of Passports",
+    "dotm.gov.np": "Department of Transport Management",
+    "psc.gov.np": "Public Service Commission",
+    "tu.edu.np": "Tribhuvan University",
+    "ku.edu.np": "Kathmandu University",
+    "worldlink.com.np": "WorldLink",
+    "vianet.com.np": "Vianet",
+    "google.com": "Google",
+    "facebook.com": "Facebook",
+    "youtube.com": "YouTube",
+    "whatsapp.com": "WhatsApp"
+  },
+  "brand_keywords": [
+    "esewa", "khalti", "imepay", "fonepay", "ntc", "ncell", "nea", "nabil", "nicasia",
+    "globalime", "himalayan", "sanima", "kumari", "prabhu", "laxmi", "rbb", "daraz",
+    "pathao", "nepalpolice", "ird", "passport", "facebook", "whatsapp", "netflix", "dhl"
+  ],
+  "trusted_senders": [
+    "esewa", "khalti", "imepay", "fonepay", "ntc", "nepaltelecom", "ncell",
+    "nabil", "nicasia", "globalime", "nimb", "himalayan", "sanima", "kumari", "prabhu",
+    "laxmisunrise", "nepalbank", "rbb", "nea", "daraz", "pathao", "1415", "9005"
+  ],
+  "shorteners": [
+    "bit.ly", "tinyurl.com", "t.co", "goo.gl", "is.gd", "cutt.ly", "rb.gy", "ow.ly",
+    "shorturl.at", "tiny.cc", "s.id", "rebrand.ly", "buff.ly"
+  ],
+  "suspicious_tlds": [
+    "xyz", "top", "click", "tk", "ml", "ga", "cf", "gq", "buzz", "rest", "icu",
+    "cyou", "sbs", "cfd", "monster", "live", "work", "loan", "win", "bid", "zip", "mov"
+  ]
+}
