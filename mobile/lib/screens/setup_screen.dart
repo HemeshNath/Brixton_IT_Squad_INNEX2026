@@ -5,10 +5,12 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
+import '../l10n/strings.dart';
 import '../services/api.dart';
 import '../services/auth_service.dart';
 import '../services/settings.dart';
 import '../theme/app_theme.dart';
+import '../widgets/language_button.dart';
 
 class SetupScreen extends StatefulWidget {
   final AppSettings settings;
@@ -39,7 +41,7 @@ class _SetupScreenState extends State<SetupScreen> {
   Future<String?> _checkServer() async {
     final base = AppSettings.normalizeBaseUrl(_server.text);
     if (base.isEmpty) {
-      setState(() => _error = 'Enter the server address.');
+      setState(() => _error = S.of(context).enterServer);
       return null;
     }
     await ApiService(client: _client, baseUrl: base).health();
@@ -54,7 +56,7 @@ class _SetupScreenState extends State<SetupScreen> {
     try {
       await action();
     } on ApiException catch (e) {
-      setState(() => _error = e.message);
+      if (mounted) setState(() => _error = S.of(context).apiError(e));
     } on AuthException catch (e) {
       setState(() => _error = e.message);
     } finally {
@@ -79,6 +81,7 @@ class _SetupScreenState extends State<SetupScreen> {
         throw ApiException(
           'The server is not set up for Google sign-in yet (FIREBASE_CREDENTIALS).',
           503,
+          'firebase',
         );
       }
       rethrow;
@@ -91,7 +94,7 @@ class _SetupScreenState extends State<SetupScreen> {
   Future<void> _devSignIn() => _run(() async {
     final name = _name.text.trim();
     if (name.isEmpty) {
-      setState(() => _error = 'Enter a name for the development sign-in.');
+      setState(() => _error = S.of(context).enterDevName);
       return;
     }
     final base = await _checkServer();
@@ -105,6 +108,7 @@ class _SetupScreenState extends State<SetupScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final s = S.of(context);
     return Scaffold(
       body: WaveBackground(
         child: SafeArea(
@@ -132,19 +136,18 @@ class _SetupScreenState extends State<SetupScreen> {
                 ),
               ),
               const SizedBox(height: 4),
-              const Text(
-                'Scam protection for your messages',
-                textAlign: TextAlign.center,
-              ),
+              Text(s.tagline, textAlign: TextAlign.center),
+              const SizedBox(height: 8),
+              const Center(child: LanguageButton(key: Key('languageButton'))),
               const SizedBox(height: 32),
               TextField(
                 key: const Key('serverInput'),
                 controller: _server,
                 keyboardType: TextInputType.url,
-                decoration: const InputDecoration(
-                  labelText: 'Server address',
+                decoration: InputDecoration(
+                  labelText: s.serverAddress,
                   hintText: '192.168.1.5:8000 or https://xyz.trycloudflare.com',
-                  border: OutlineInputBorder(),
+                  border: const OutlineInputBorder(),
                 ),
               ),
               const SizedBox(height: 24),
@@ -160,12 +163,12 @@ class _SetupScreenState extends State<SetupScreen> {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : const Icon(Icons.account_circle),
-                label: const Text('Sign in with Google'),
+                label: Text(s.signInGoogle),
               ),
               if (!widget.auth.googleAvailable) ...[
                 const SizedBox(height: 8),
                 Text(
-                  'Google sign-in is not set up in this build yet.',
+                  s.googleNotSetUp,
                   key: const Key('googleUnavailable'),
                   textAlign: TextAlign.center,
                   style: theme.textTheme.bodySmall,
@@ -183,23 +186,23 @@ class _SetupScreenState extends State<SetupScreen> {
                 const SizedBox(height: 32),
                 const Divider(),
                 Text(
-                  'Development sign-in (debug builds only)',
+                  s.devSignInTitle,
                   style: theme.textTheme.labelLarge,
                 ),
                 const SizedBox(height: 8),
                 TextField(
                   key: const Key('devNameInput'),
                   controller: _name,
-                  decoration: const InputDecoration(
-                    labelText: 'Your name',
-                    border: OutlineInputBorder(),
+                  decoration: InputDecoration(
+                    labelText: s.yourName,
+                    border: const OutlineInputBorder(),
                   ),
                 ),
                 const SizedBox(height: 8),
                 OutlinedButton(
                   key: const Key('devButton'),
                   onPressed: _busy ? null : _devSignIn,
-                  child: const Text('Use development sign-in'),
+                  child: Text(s.useDevSignIn),
                 ),
               ],
             ],

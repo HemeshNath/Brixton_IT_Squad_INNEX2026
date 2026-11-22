@@ -5,14 +5,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../l10n/strings.dart';
 import '../models/check_result.dart';
 import '../services/api.dart';
 import '../services/native_bridge.dart';
 import '../services/settings.dart';
 import '../theme/app_theme.dart';
+import '../widgets/language_button.dart';
 import '../widgets/result_card.dart';
 import 'check_detail_screen.dart';
 import 'history_screen.dart';
+import 'onboarding_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   final AppSettings settings;
@@ -97,7 +100,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Future<void> _check() async {
     final text = _text.text.trim();
     if (text.isEmpty) {
-      setState(() => _error = 'Paste or type a message first.');
+      setState(() => _error = S.of(context).pasteFirst);
       return;
     }
     FocusScope.of(context).unfocus();
@@ -112,7 +115,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _checkedText = text;
       });
     } on ApiException catch (e) {
-      setState(() => _error = e.message);
+      if (mounted) setState(() => _error = S.of(context).apiError(e));
     } finally {
       if (mounted) setState(() => _checking = false);
     }
@@ -122,7 +125,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final data = await Clipboard.getData(Clipboard.kTextPlain);
     final text = data?.text?.trim() ?? '';
     if (text.isEmpty) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Clipboard is empty.')));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(S.of(context).clipboardEmpty)));
       return;
     }
     _text.text = text;
@@ -135,10 +138,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         : 'Dear customer, your eSewa wallet will be BLOCKED today. Update KYC: http://esewa-kyc.xyz/login';
     final verdict = await NativeBridge.simulateMessage('9812345678', text);
     if (!mounted) return;
+    final s = S.of(context);
     final msg = switch (verdict) {
-      'skipped' => 'Skipped: OTP or trusted sender – it would not leave your phone.',
-      'failed' => 'Could not reach the server.',
-      _ => 'Notification shown: $verdict',
+      'skipped' => s.skippedLocal,
+      'failed' => s.serverUnreachable,
+      _ => s.notificationShown(verdict),
     };
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
@@ -146,32 +150,41 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Future<void> _wrongVerdict() async {
     final r = _result;
     if (r == null) return;
+    final s = S.of(context);
     final label = await askCorrectLabel(context);
     if (label == null || !mounted) return;
     try {
       await widget.apiFactory().sendFeedback(r.checkId, label);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Thanks! This helps train our model.')));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(s.thanksFeedback)));
       }
     } on ApiException catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(s.apiError(e))));
     }
   }
 
   void _openHistory() =>
       Navigator.push(context, MaterialPageRoute(builder: (_) => HistoryScreen(apiFactory: widget.apiFactory)));
 
+  void _openGuide() => Navigator.push(
+      context, MaterialPageRoute(builder: (ctx) => OnboardingScreen(onDone: () async => Navigator.pop(ctx))));
+
   void _openSettings() {
     showModalBottomSheet(
       context: context,
       showDragHandle: true,
+      isScrollControlled: true,
       builder: (ctx) => SafeArea(
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
+        child: Builder(builder: (ctx) {
+          final s = S.of(ctx);
+          return SingleChildScrollView(
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
           if (widget.signedInAs.isNotEmpty)
-            ListTile(leading: const Icon(Icons.account_circle), title: Text('Signed in as ${widget.signedInAs}')),
+            ListTile(leading: const Icon(Icons.account_circle), title: Text(s.signedInAs(widget.signedInAs))),
+          const LanguageTile(),
           ListTile(
             leading: const Icon(Icons.history),
-            title: const Text('History'),
+            title: Text(s.history),
             onTap: () {
               Navigator.pop(ctx);
               _openHistory();
@@ -179,8 +192,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           ),
           ListTile(
             leading: const Icon(Icons.notifications_active_outlined),
-            title: const Text('Test as SMS'),
-            subtitle: const Text('Shows the notification a real SMS would get'),
+            title: Text(s.testAsSms),
+            subtitle: Text(s.testAsSmsSub),
             onTap: () {
               Navigator.pop(ctx);
               _simulate();
@@ -188,22 +201,33 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           ),
           ListTile(
             leading: const Icon(Icons.battery_saver),
-            title: const Text('Battery settings'),
+            title: Text(s.batterySettings),
             onTap: () {
               Navigator.pop(ctx);
               NativeBridge.openBatterySettings();
             },
           ),
           ListTile(
+            key: const Key('setupGuide'),
+            leading: const Icon(Icons.checklist_rounded),
+            title: Text(s.setupGuide),
+            onTap: () {
+              Navigator.pop(ctx);
+              _openGuide();
+            },
+          ),
+          ListTile(
             key: const Key('signOut'),
             leading: const Icon(Icons.logout),
-            title: const Text('Sign out'),
+            title: Text(s.signOut),
             onTap: () async {
               Navigator.pop(ctx);
               await widget.onSignOut();
             },
           ),
-        ]),
+            ]),
+          );
+        }),
       ),
     );
   }
@@ -255,7 +279,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                           child: TextButton.icon(
                             onPressed: _wrongVerdict,
                             icon: const Icon(Icons.flag_outlined, size: 18),
-                            label: const Text('Wrong result?'),
+                            label: Text(S.of(context).wrongResult),
                           ),
                         ),
                       ],
@@ -295,6 +319,7 @@ class _ContentInput extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = S.of(context);
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
@@ -306,7 +331,7 @@ class _ContentInput extends StatelessWidget {
       child: Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
         IconButton(
           key: const Key('pasteButton'),
-          tooltip: 'Paste',
+          tooltip: s.paste,
           icon: const Icon(Icons.add, size: 28, color: AppColors.ink),
           onPressed: onPlus,
         ),
@@ -317,9 +342,9 @@ class _ContentInput extends StatelessWidget {
             minLines: 1,
             maxLines: 5,
             textInputAction: TextInputAction.newline,
-            decoration: const InputDecoration(
-              hintText: 'Paste your content here…',
-              hintStyle: TextStyle(fontStyle: FontStyle.italic, color: Color(0xFF8A8494)),
+            decoration: InputDecoration(
+              hintText: s.pasteHint,
+              hintStyle: const TextStyle(fontStyle: FontStyle.italic, color: Color(0xFF8A8494)),
               border: InputBorder.none,
             ),
           ),
@@ -368,6 +393,7 @@ class _ProtectionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = S.of(context);
     final color = protected ? AppColors.protectedGreen : AppColors.warningOrange;
     return Card(
       key: const Key('protectionCard'),
@@ -379,25 +405,24 @@ class _ProtectionCard extends StatelessWidget {
             Icon(protected ? Icons.shield : Icons.shield_outlined, color: color, size: 34),
             const SizedBox(width: 12),
             Expanded(
-              child: Text(protected ? 'Messages are protected' : 'Protection is off',
+              child: Text(protected ? s.protectedTitle : s.protectionOff,
                   style: TextStyle(color: color, fontSize: 22, fontWeight: FontWeight.w500)),
             ),
           ]),
           const SizedBox(height: 6),
           if (!listenerOn) ...[
-            const Text('Allow CheckScam to read message notifications so it can check new SMS '
-                'before you see them. OTPs and bank messages stay on your phone.'),
+            Text(s.allowAccessText),
             const SizedBox(height: 8),
-            FilledButton(onPressed: NativeBridge.openListenerSettings, child: const Text('Allow notification access')),
+            FilledButton(onPressed: NativeBridge.openListenerSettings, child: Text(s.allowAccess)),
           ],
           if (!notifOk) ...[
             const SizedBox(height: 8),
             OutlinedButton(
-                onPressed: NativeBridge.requestNotificationPermission, child: const Text('Allow CheckScam notifications')),
+                onPressed: NativeBridge.requestNotificationPermission, child: Text(s.allowNotifications)),
           ],
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
-            title: const Text('Check new SMS automatically', style: TextStyle(fontSize: 17)),
+            title: Text(s.autoCheck, style: const TextStyle(fontSize: 17)),
             value: settings.protectionEnabled,
             onChanged: (v) async {
               await settings.setProtectionEnabled(v);
@@ -406,7 +431,7 @@ class _ProtectionCard extends StatelessWidget {
           ),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
-            title: const Text('Also check WhatsApp, Viber and Messenger', style: TextStyle(fontSize: 17)),
+            title: Text(s.chatApps, style: const TextStyle(fontSize: 17)),
             value: settings.watchChatApps,
             onChanged: (v) async {
               await settings.setWatchChatApps(v);

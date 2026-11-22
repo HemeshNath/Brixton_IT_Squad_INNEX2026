@@ -2,20 +2,20 @@
 
 import 'package:flutter/material.dart';
 
+import '../l10n/strings.dart';
 import '../models/check_result.dart';
 import '../theme/app_theme.dart';
 
 class VerdictStyle {
   final Color color;
   final IconData icon;
-  final String title;
-  const VerdictStyle(this.color, this.icon, this.title);
+  const VerdictStyle(this.color, this.icon);
 
   static VerdictStyle of(String verdict) => switch (verdict) {
-        'dangerous' => const VerdictStyle(Color(0xFFC62828), Icons.dangerous_rounded, 'Dangerous – likely a scam'),
-        'suspicious' => const VerdictStyle(Color(0xFFEF6C00), Icons.warning_amber_rounded, 'Suspicious – be careful'),
-        'safe' => const VerdictStyle(Color(0xFF2E7D32), Icons.verified_user_rounded, 'Looks safe'),
-        _ => const VerdictStyle(Colors.grey, Icons.help_outline, 'Unknown'),
+        'dangerous' => const VerdictStyle(Color(0xFFC62828), Icons.dangerous_rounded),
+        'suspicious' => const VerdictStyle(Color(0xFFEF6C00), Icons.warning_amber_rounded),
+        'safe' => const VerdictStyle(Color(0xFF2E7D32), Icons.verified_user_rounded),
+        _ => const VerdictStyle(Colors.grey, Icons.help_outline),
       };
 }
 
@@ -27,6 +27,7 @@ class ResultCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = S.of(context);
     final style = VerdictStyle.of(result.verdict);
     final shown = result.reasons.where((r) => r.points > 0 || r.code.startsWith('TRUSTED')).toList();
     return Card(
@@ -41,7 +42,7 @@ class ResultCard extends StatelessWidget {
               Icon(style.icon, color: Colors.white, size: 36),
               const SizedBox(width: 12),
               Expanded(
-                child: Text(style.title,
+                child: Text(s.verdictTitle(result.verdict),
                     style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
               ),
               Text('${result.score}/100',
@@ -52,10 +53,10 @@ class ResultCard extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.all(16),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(result.suggestion, style: Theme.of(context).textTheme.titleMedium),
+              Text(s.suggestion(result.suggestion), style: Theme.of(context).textTheme.titleMedium),
               if (shown.isNotEmpty) ...[
                 const SizedBox(height: 12),
-                Text('Why', style: Theme.of(context).textTheme.labelLarge),
+                Text(s.why, style: Theme.of(context).textTheme.labelLarge),
                 const SizedBox(height: 4),
                 for (final r in shown)
                   Padding(
@@ -64,13 +65,13 @@ class ResultCard extends StatelessWidget {
                       Icon(r.points > 0 ? Icons.remove_circle_outline : Icons.check_circle_outline,
                           size: 18, color: r.points > 0 ? style.color : Colors.green),
                       const SizedBox(width: 6),
-                      Expanded(child: Text(r.text)),
+                      Expanded(child: Text(s.reason(r))),
                     ]),
                   ),
               ],
               if (result.checksSkipped.isNotEmpty) ...[
                 const SizedBox(height: 8),
-                Text('Some checks were skipped: ${result.checksSkipped.join(', ')}',
+                Text(s.skippedChecks(result.checksSkipped),
                     style: Theme.of(context).textTheme.bodySmall),
               ],
               if (onWrongVerdict != null)
@@ -79,7 +80,7 @@ class ResultCard extends StatelessWidget {
                   child: TextButton.icon(
                     onPressed: onWrongVerdict,
                     icon: const Icon(Icons.flag_outlined),
-                    label: const Text('Wrong result?'),
+                    label: Text(s.wrongResult),
                   ),
                 ),
             ]),
@@ -98,12 +99,8 @@ class ScoreCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final verdictText = switch (result.verdict) {
-      'dangerous' => 'Dangerous – likely a scam',
-      'suspicious' => 'Suspicious – be careful',
-      'safe' => 'Looks safe',
-      _ => 'Unknown',
-    };
+    final s = S.of(context);
+    final verdictText = s.verdictTitle(result.verdict);
     return Container(
       key: const Key('scoreCard'),
       width: double.infinity,
@@ -119,9 +116,9 @@ class ScoreCard extends StatelessWidget {
           text: TextSpan(
             style: const TextStyle(color: Colors.white, fontSize: 19),
             children: [
-              const TextSpan(text: 'This content is likely '),
+              TextSpan(text: s.likelyPrefix),
               TextSpan(text: '${result.score}%', style: const TextStyle(fontWeight: FontWeight.w800)),
-              const TextSpan(text: ' Scam'),
+              TextSpan(text: s.likelySuffix),
             ],
           ),
         ),
@@ -169,30 +166,35 @@ class ExplanationText extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = S.of(context);
     final reasons = result.reasons.where((r) => r.points > 0 && !r.code.startsWith('MIRA_NOT_SURE')).toList();
     final safe = result.reasons.where((r) => r.points <= 0 && r.code.startsWith('TRUSTED')).toList();
     final sentences = <String>[
-      result.suggestion,
-      ...reasons.map((r) => _sentence(r.text)),
-      ...safe.map((r) => _sentence(r.text)),
-      if (result.checksSkipped.isNotEmpty) 'Some checks could not run this time (${result.checksSkipped.join(', ')}).',
+      s.suggestion(result.suggestion),
+      ...reasons.map((r) => _sentence(s.reason(r))),
+      ...safe.map((r) => _sentence(s.reason(r))),
+      if (result.checksSkipped.isNotEmpty) s.skippedChecks(result.checksSkipped),
     ];
     return Text(sentences.join(' '),
         key: const Key('explanation'), style: const TextStyle(fontSize: 16, height: 1.4, color: AppColors.ink));
   }
 
-  static String _sentence(String s) => s.endsWith('.') ? s : '$s.';
+  static String _sentence(String s) => s.endsWith('.') || s.endsWith('।') ? s : (_isNepali(s) ? '$s।' : '$s.');
+  static bool _isNepali(String s) => RegExp(r'[ऀ-ॿ]').hasMatch(s);
 }
 
 /// Asks the user what the message really was and returns ham/spam/scam (or null).
-Future<String?> askCorrectLabel(BuildContext context) => showDialog<String>(
-      context: context,
-      builder: (ctx) => SimpleDialog(
-        title: const Text('What was this message really?'),
-        children: [
-          SimpleDialogOption(onPressed: () => Navigator.pop(ctx, 'scam'), child: const Text('A scam / fraud')),
-          SimpleDialogOption(onPressed: () => Navigator.pop(ctx, 'spam'), child: const Text('An advertisement')),
-          SimpleDialogOption(onPressed: () => Navigator.pop(ctx, 'ham'), child: const Text('A normal, safe message')),
-        ],
-      ),
-    );
+Future<String?> askCorrectLabel(BuildContext context) {
+  final s = S.of(context);
+  return showDialog<String>(
+    context: context,
+    builder: (ctx) => SimpleDialog(
+      title: Text(s.whatWasIt),
+      children: [
+        SimpleDialogOption(onPressed: () => Navigator.pop(ctx, 'scam'), child: Text(s.labelScam)),
+        SimpleDialogOption(onPressed: () => Navigator.pop(ctx, 'spam'), child: Text(s.labelSpam)),
+        SimpleDialogOption(onPressed: () => Navigator.pop(ctx, 'ham'), child: Text(s.labelHam)),
+      ],
+    ),
+  );
+}

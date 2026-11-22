@@ -45,6 +45,9 @@ dependencies {
     // BoM version matches the one used by the firebase_core Flutter plugin.
     implementation(platform("com.google.firebase:firebase-bom:35.2.0"))
     implementation("com.google.firebase:firebase-auth")
+
+    // JVM unit tests for the on-phone filter, message picking and notification texts (Phase 9.8).
+    testImplementation("junit:junit:4.13.2")
 }
 
 kotlin {

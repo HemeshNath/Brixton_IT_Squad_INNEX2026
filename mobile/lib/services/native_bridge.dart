@@ -36,6 +36,21 @@ class NativeBridge {
   static Future<void> requestNotificationPermission() => _ch.invokeMethod('requestNotificationPermission');
   static Future<void> openBatterySettings() => _ch.invokeMethod('openBatterySettings');
 
+  /// Phone brand (Build.MANUFACTURER), e.g. "realme", for the battery guide. Empty when unknown.
+  static Future<String> manufacturer() async {
+    try {
+      return await _ch.invokeMethod<String>('getManufacturer') ?? '';
+    } on MissingPluginException {
+      return ''; // not on Android (tests)
+    }
+  }
+
+  /// Opens this app's Android "App info" page (battery, permissions).
+  static Future<void> openAppDetails() => _ch.invokeMethod('openAppDetails');
+
+  /// Opens the brand's auto-start page; falls back to App info. True if a brand page opened.
+  static Future<bool> openAutostart() async => await _ch.invokeMethod<bool>('openAutostart') ?? false;
+
   /// Runs a message through the same path a real SMS takes and shows the notification.
   /// Returns the verdict, "skipped" (OTP / trusted sender) or "failed".
   static Future<String> simulateMessage(String sender, String text) async =>

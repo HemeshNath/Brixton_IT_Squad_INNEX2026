@@ -2,6 +2,7 @@
 
 import 'package:flutter/material.dart';
 
+import '../l10n/strings.dart';
 import '../models/check_result.dart';
 import '../services/api.dart';
 import '../widgets/result_card.dart';
@@ -50,7 +51,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
         _hasNext = page.hasNext;
       });
     } on ApiException catch (e) {
-      setState(() => _error = e.message);
+      if (mounted) setState(() => _error = S.of(context).apiError(e));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -61,11 +62,12 @@ class _HistoryScreenState extends State<HistoryScreen> {
       await widget.apiFactory().deleteCheck(c.checkId);
       setState(() => _items.remove(c));
     } on ApiException catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(S.of(context).apiError(e))));
     }
   }
 
   void _open(CheckResult c) {
+    final s = S.of(context);
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -73,7 +75,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(16),
           child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            if (c.sender.isNotEmpty) Text('From: ${c.sender}', style: Theme.of(ctx).textTheme.labelLarge),
+            if (c.sender.isNotEmpty) Text(s.from(c.sender), style: Theme.of(ctx).textTheme.labelLarge),
             const SizedBox(height: 4),
             Text(c.text),
             const SizedBox(height: 12),
@@ -86,10 +88,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
                   await widget.apiFactory().sendFeedback(c.checkId, label);
                   if (ctx.mounted) Navigator.pop(ctx);
                   if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Thanks for the feedback!')));
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(s.thanksShort)));
                   }
                 } on ApiException catch (e) {
-                  if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+                  if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(s.apiError(e))));
                 }
               },
             ),
@@ -101,14 +103,15 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final s = S.of(context);
     return Scaffold(
-      appBar: AppBar(title: const Text('Checked messages')),
+      appBar: AppBar(title: Text(s.historyTitle)),
       body: RefreshIndicator(
         onRefresh: _reload,
         child: _items.isEmpty && !_loading
             ? ListView(children: [
                 const SizedBox(height: 120),
-                Center(child: Text(_error ?? 'No checked messages yet.')),
+                Center(child: Text(_error ?? s.noHistory)),
               ])
             : ListView.builder(
                 itemCount: _items.length + (_hasNext ? 1 : 0),
@@ -132,7 +135,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                     onDismissed: (_) => _delete(c),
                     child: ListTile(
                       leading: Icon(style.icon, color: style.color),
-                      title: Text(c.sender.isEmpty ? '(no sender)' : c.sender, maxLines: 1),
+                      title: Text(c.sender.isEmpty ? s.noSender : c.sender, maxLines: 1),
                       subtitle: Text(c.text, maxLines: 2, overflow: TextOverflow.ellipsis),
                       trailing: Text('${c.score}', style: TextStyle(color: style.color, fontWeight: FontWeight.bold)),
                       onTap: () => _open(c),

@@ -78,6 +78,13 @@ class MainActivity : FlutterActivity() {
                     startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
                     result.success(null)
                 }
+                // Onboarding battery guide (Phase 9.5): phone brand, app info page, brand auto-start page.
+                "getManufacturer" -> result.success(Build.MANUFACTURER ?: "")
+                "openAppDetails" -> {
+                    startActivity(appDetailsIntent())
+                    result.success(null)
+                }
+                "openAutostart" -> result.success(openAutostart())
                 // Demo/testing: runs the same check + notification as a real SMS would get.
                 "simulateMessage" -> {
                     val msg = IncomingMessage(call.argument<String>("sender") ?: "", call.argument<String>("text") ?: "")
@@ -94,6 +101,29 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    private fun appDetailsIntent() =
+        Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.fromParts("package", packageName, null))
+
+    /**
+     * Opens the brand's auto-start page (Xiaomi, Oppo/Realme, Vivo, Huawei...). These pages are not public
+     * Android APIs, so each one is tried in turn; if none exists, the app info page opens. Returns true if a
+     * brand page opened.
+     */
+    private fun openAutostart(): Boolean {
+        for (component in AUTOSTART_PAGES) {
+            val intent = Intent().setComponent(component).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            // Started directly: on Android 11+ resolveActivity() cannot see other apps' pages without <queries>.
+            try {
+                startActivity(intent)
+                return true
+            } catch (e: Exception) {
+                // Not allowed or not there on this phone: try the next one.
+            }
+        }
+        startActivity(appDetailsIntent())
+        return false
+    }
+
     private fun isListenerEnabled(): Boolean {
         val flat = Settings.Secure.getString(contentResolver, "enabled_notification_listeners") ?: return false
         val me = ComponentName(this, SmsGuardService::class.java).flattenToString()
@@ -106,6 +136,20 @@ class MainActivity : FlutterActivity() {
         const val EXTRA_MESSAGE = "message"
         const val EXTRA_SENDER = "sender"
         const val EXTRA_OPEN_ORIGINAL = "open_original"
+
+        private val AUTOSTART_PAGES = listOf(
+            ComponentName("com.miui.securitycenter", "com.miui.permcenter.autostart.AutoStartManagementActivity"),
+            ComponentName("com.coloros.safecenter", "com.coloros.safecenter.permission.startup.StartupAppListActivity"),
+            ComponentName("com.coloros.safecenter", "com.coloros.safecenter.startupapp.StartupAppListActivity"),
+            ComponentName("com.oplus.safecenter", "com.oplus.safecenter.permission.startup.StartupAppListActivity"),
+            ComponentName("com.oppo.safe", "com.oppo.safe.permission.startup.StartupAppListActivity"),
+            ComponentName("com.iqoo.secure", "com.iqoo.secure.ui.phoneoptimize.AddWhiteListActivity"),
+            ComponentName("com.vivo.permissionmanager", "com.vivo.permissionmanager.activity.BgStartUpManagerActivity"),
+            ComponentName("com.huawei.systemmanager", "com.huawei.systemmanager.startupmgr.ui.StartupNormalAppListActivity"),
+            ComponentName("com.huawei.systemmanager", "com.huawei.systemmanager.optimize.process.ProtectActivity"),
+            ComponentName("com.letv.android.letvsafe", "com.letv.android.letvsafe.AutobootManageActivity"),
+            ComponentName("com.asus.mobilemanager", "com.asus.mobilemanager.MainActivity"),
+        )
     }
 
     private fun hasNotificationPermission(): Boolean =

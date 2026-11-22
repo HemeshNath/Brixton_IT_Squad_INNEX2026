@@ -11,7 +11,10 @@ import '../models/check_result.dart';
 class ApiException implements Exception {
   final String message;
   final int? statusCode;
-  ApiException(this.message, [this.statusCode]);
+
+  /// Short error kind (timeout, offline, signin, ...) so the app can show the message in Nepali too.
+  final String code;
+  ApiException(this.message, [this.statusCode, this.code = '']);
   @override
   String toString() => message;
 }
@@ -48,7 +51,7 @@ class ApiService {
       try {
         token = await tokenProvider!();
       } catch (_) {
-        throw ApiException('Could not refresh your sign-in. Please sign in again.', 401);
+        throw ApiException('Could not refresh your sign-in. Please sign in again.', 401, 'token');
       }
     }
     if (token == null || token.isEmpty) token = authToken.isEmpty ? null : authToken;
@@ -65,11 +68,11 @@ class ApiService {
     try {
       r = await call(headers).timeout(timeout);
     } on TimeoutException {
-      throw ApiException('The server is taking too long. Please try again.');
+      throw ApiException('The server is taking too long. Please try again.', null, 'timeout');
     } on SocketException {
-      throw ApiException('No internet connection, or the server is not reachable.');
+      throw ApiException('No internet connection, or the server is not reachable.', null, 'offline');
     } on http.ClientException {
-      throw ApiException('Could not reach the server.');
+      throw ApiException('Could not reach the server.', null, 'unreachable');
     }
     if (r.statusCode == 204) return null;
     dynamic body;
@@ -82,15 +85,15 @@ class ApiService {
     switch (r.statusCode) {
       case 400:
         final detail = body is Map ? (body['detail'] ?? body.values.first) : null;
-        throw ApiException(detail is List ? '${detail.first}' : '${detail ?? 'Invalid input.'}', 400);
+        throw ApiException(detail is List ? '${detail.first}' : '${detail ?? 'Invalid input.'}', 400, 'invalid');
       case 401:
-        throw ApiException('Please sign in again.', 401);
+        throw ApiException('Please sign in again.', 401, 'signin');
       case 404:
-        throw ApiException('Not found.', 404);
+        throw ApiException('Not found.', 404, 'not_found');
       case 429:
-        throw ApiException('Too many checks right now. Please wait a moment.', 429);
+        throw ApiException('Too many checks right now. Please wait a moment.', 429, 'too_many');
       default:
-        throw ApiException('Server error (${r.statusCode}). Please try again later.', r.statusCode);
+        throw ApiException('Server error (${r.statusCode}). Please try again later.', r.statusCode, 'server');
     }
   }
 

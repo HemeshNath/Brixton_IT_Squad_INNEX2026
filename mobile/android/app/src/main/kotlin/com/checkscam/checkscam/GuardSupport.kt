@@ -22,7 +22,14 @@ import java.util.concurrent.TimeUnit
 data class IncomingMessage(val sender: String, val text: String)
 
 /** Server verdict. `raw` is the full JSON answer, handed to the app's result screen when the notification is tapped. */
-data class CheckResult(val verdict: String, val score: Int, val suggestion: String, val topReason: String?, val raw: String = "")
+data class CheckResult(
+    val verdict: String,
+    val score: Int,
+    val suggestion: String,
+    val topReason: String?,
+    val raw: String = "",
+    val topCode: String? = null, // reason code of topReason, used for the Nepali text
+)
 
 /** Settings written by the Flutter side through shared_preferences ("flutter." prefix). */
 data class GuardConfig(
@@ -31,6 +38,7 @@ data class GuardConfig(
     val apiBaseUrl: String,
     val devUser: String,
     val authToken: String,
+    val language: String = "en", // "en" | "ne" (app setting), used for the notification texts
 ) {
     companion object {
         fun load(ctx: Context): GuardConfig {
@@ -41,6 +49,7 @@ data class GuardConfig(
                 apiBaseUrl = p.getString("flutter.api_base_url", "") ?: "",
                 devUser = p.getString("flutter.dev_user", "") ?: "",
                 authToken = p.getString("flutter.auth_token", "") ?: "",
+                language = p.getString("flutter.language", "en") ?: "en",
             )
         }
     }
@@ -49,25 +58,38 @@ data class GuardConfig(
 object MessageExtractor {
     private val summaryText = Regex("""^\d+\s+(new\s+)?messages?$""", RegexOption.IGNORE_CASE)
 
+    /** Reads the notification's fields, then picks the message with [pick]. */
     fun extract(n: Notification): IncomingMessage? {
         val extras = n.extras ?: return null
-        var sender = (extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)
-            ?: extras.getCharSequence(Notification.EXTRA_TITLE))?.toString() ?: ""
-        var text: String? = null
-
-        // MessagingStyle notifications keep each message in EXTRA_MESSAGES; take the newest.
+        // MessagingStyle notifications keep each message in EXTRA_MESSAGES; only the newest is needed.
         @Suppress("DEPRECATION")
-        val messages = extras.getParcelableArray(Notification.EXTRA_MESSAGES)
-        if (!messages.isNullOrEmpty()) {
-            val last = messages.last() as? Bundle
-            text = last?.getCharSequence("text")?.toString()
-            last?.getCharSequence("sender")?.toString()?.let { if (it.isNotBlank()) sender = it }
-        }
-        if (text.isNullOrBlank()) {
-            text = (extras.getCharSequence(Notification.EXTRA_BIG_TEXT)
-                ?: extras.getCharSequence(Notification.EXTRA_TEXT))?.toString()
-        }
-        val clean = text?.trim() ?: return null
+        val last = extras.getParcelableArray(Notification.EXTRA_MESSAGES)?.lastOrNull() as? Bundle
+        return pick(
+            conversationTitle = extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)?.toString(),
+            title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString(),
+            lastMessageSender = last?.getCharSequence("sender")?.toString(),
+            lastMessageText = last?.getCharSequence("text")?.toString(),
+            bigText = extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString(),
+            text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString(),
+        )
+    }
+
+    /**
+     * Picks sender and text (pure, unit-tested): the newest MessagingStyle message first, else the big text,
+     * else the normal text. Summaries like "3 new messages" and empty texts give null.
+     */
+    fun pick(
+        conversationTitle: String?,
+        title: String?,
+        lastMessageSender: String?,
+        lastMessageText: String?,
+        bigText: String?,
+        text: String?,
+    ): IncomingMessage? {
+        var sender = conversationTitle ?: title ?: ""
+        if (!lastMessageSender.isNullOrBlank()) sender = lastMessageSender
+        val chosen = listOf(lastMessageText, bigText, text).firstOrNull { !it.isNullOrBlank() }
+        val clean = chosen?.trim() ?: return null
         if (clean.isEmpty() || summaryText.matches(clean)) return null
         return IncomingMessage(sender.trim(), clean)
     }
@@ -139,14 +161,20 @@ object ApiClient {
             val json = JSONObject(conn.inputStream.bufferedReader(Charsets.UTF_8).readText())
             val reasons = json.optJSONArray("reasons")
             var top: String? = null
+            var topCode: String? = null
             if (reasons != null) {
                 var best = -1
                 for (i in 0 until reasons.length()) {
                     val r = reasons.getJSONObject(i)
-                    if (r.optInt("points") > best) { best = r.optInt("points"); top = r.optString("text") }
+                    if (r.optInt("points") > best) {
+                        best = r.optInt("points"); top = r.optString("text"); topCode = r.optString("code")
+                    }
                 }
             }
-            CheckResult(json.optString("verdict", "unknown"), json.optInt("score"), json.optString("suggestion"), top, json.toString())
+            CheckResult(
+                json.optString("verdict", "unknown"), json.optInt("score"), json.optString("suggestion"), top,
+                json.toString(), topCode,
+            )
         } catch (e: Exception) {
             Log.w(SmsGuardService.TAG, "Check failed: ${e.javaClass.simpleName}")
             null
@@ -159,34 +187,34 @@ object ApiClient {
 object ResultNotifier {
     private const val CHANNEL_ID = "checkscam_results"
 
-    fun ensureChannel(ctx: Context) {
-        val nm = ctx.getSystemService(NotificationManager::class.java)
-        if (nm.getNotificationChannel(CHANNEL_ID) == null) {
-            nm.createNotificationChannel(
-                NotificationChannel(CHANNEL_ID, "Checked messages", NotificationManager.IMPORTANCE_HIGH).apply {
-                    description = "Your messages after CheckScam has checked them"
-                }
-            )
-        }
+    /** Creates the channel, or updates its name/description when the app language changed. */
+    fun ensureChannel(ctx: Context, texts: NotificationTexts) {
+        ctx.getSystemService(NotificationManager::class.java).createNotificationChannel(
+            NotificationChannel(CHANNEL_ID, texts.channelName, NotificationManager.IMPORTANCE_HIGH).apply {
+                description = texts.channelDescription
+            }
+        )
     }
 
     fun show(ctx: Context, msg: IncomingMessage, result: CheckResult?, openOriginal: PendingIntent?, id: Int) {
-        ensureChannel(ctx)
-        val from = msg.sender.ifBlank { "Unknown sender" }
-        val (title, color) = when (result?.verdict) {
-            "dangerous" -> "⛔ Scam warning · $from" to Color.rgb(198, 40, 40)
-            "suspicious" -> "⚠️ Be careful · $from" to Color.rgb(239, 108, 0)
-            "safe" -> "✅ $from" to Color.rgb(46, 125, 50)
-            else -> "$from · not verified" to Color.GRAY
+        val texts = NotificationTexts(GuardConfig.load(ctx).language)
+        ensureChannel(ctx, texts)
+        val from = msg.sender.ifBlank { texts.unknownSender }
+        val title = texts.title(result?.verdict, from)
+        val color = when (result?.verdict) {
+            "dangerous" -> Color.rgb(198, 40, 40)
+            "suspicious" -> Color.rgb(239, 108, 0)
+            "safe" -> Color.rgb(46, 125, 50)
+            else -> Color.GRAY
         }
         val details = buildString {
             append(msg.text)
             if (result != null && result.verdict != "safe") {
                 append("\n\n")
-                result.topReason?.let { append(it).append(". ") }
-                append(result.suggestion)
+                texts.reason(result.topCode, result.topReason)?.let { append(texts.sentence(it)).append(" ") }
+                append(texts.suggestion(result.suggestion))
             }
-            if (result == null) append("\n\nCheckScam could not check this message (no connection).")
+            if (result == null) append("\n\n").append(texts.notChecked)
         }
         // Tapping a warning opens CheckScam on the result screen for THIS message. Each notification gets its
         // own request code, so the results of two notifications never overwrite each other.
