@@ -16,6 +16,7 @@ from .config import Settings, get_settings
 from .checks.domain_age import DomainAgeClient
 from .checks.mira import MiraModel, MiraService
 from .checks.otx import OtxClient
+from .checks.known_scams import KnownScamMemory
 from .checks.pipeline import Checkers
 from .db import make_engine, make_sessionmaker
 from .logging_setup import setup_logging
@@ -59,6 +60,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         ages=DomainAgeClient(sessions, timeout=settings.whois_timeout_seconds, cache_days=settings.domain_cache_days)
         if settings.whois_enabled else None,
         mira=app.state.mira,
+        known=KnownScamMemory(sessions),  # Phase 10: approved scams, matched by letter patterns
         link_timeout=settings.link_checks_timeout_seconds,
     )
 

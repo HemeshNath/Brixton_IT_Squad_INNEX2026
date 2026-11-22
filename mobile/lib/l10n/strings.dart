@@ -269,6 +269,9 @@ String? _nepaliReason(Reason r) {
           : 'सन्देशमा $brand को नाम छ तर लिंक $brand को आधिकारिक साइट होइन';
     case 'GAMBLING_WORDS':
       return 'सन्देशले जुवा वा बेटिङमा बोलाउँछ';
+    case 'KNOWN_SCAM':
+      final pct = RegExp(r'(\d+)%').firstMatch(t)?.group(1);
+      return 'पहिले चिनिएको ठगी सन्देशसँग मिल्छ${pct == null ? '' : ' ($pct% मिल्दो)'}';
     case 'TRUSTED_LINK':
       return 'लिंक कम्पनीको आधिकारिक साइटमा जान्छ';
     case 'TRUSTED_SENDER':

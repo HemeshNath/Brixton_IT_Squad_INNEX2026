@@ -5,6 +5,7 @@ Parts of the score:
   MIRA        scam_weight*P(scam) + spam_weight*P(ad) + question points (can be negative)
   links       the worst link's rule / OTX / domain-age points (one bad link counts, not the sum of all)
   rules       asks for OTP/PIN, brand mismatch, gambling words
+  memory      very similar to an approved known scam (Phase 10)
   hard rules  OTP request + non-official link -> at least Dangerous;
               registered company sender + only official links + asks nothing -> at most Safe
 Pure function, so every boundary can be unit tested."""
@@ -27,6 +28,7 @@ class ScoreInput:
     not_sure: bool = False
     brand_mismatch: list[str] = field(default_factory=list)
     gambling: bool = False
+    known_similarity: float = 0.0  # best similarity to a known scam (0 = none / not checked)
 
 
 def verdict_for(score: int, cfg: ScoringConfig | None = None) -> str:
@@ -74,6 +76,15 @@ def _mira_reasons(inp: ScoreInput, cfg: ScoringConfig, risky_links: list[LinkRes
     return reasons
 
 
+def _known_scam_points(sim: float, cfg: ScoringConfig) -> int:
+    k = cfg.known_scam
+    if sim >= k["strong_similarity"]:
+        return int(k["strong_points"])
+    if sim >= k["min_similarity"]:
+        return int(k["points"])
+    return 0
+
+
 def score_message(inp: ScoreInput, cfg: ScoringConfig | None = None) -> dict:
     cfg = cfg or scoring_config()
     reasons: list[Reason] = []
@@ -95,6 +106,9 @@ def score_message(inp: ScoreInput, cfg: ScoringConfig | None = None) -> dict:
                               cfg.rules["brand_mismatch"]))
     if inp.gambling:
         reasons.append(Reason("GAMBLING_WORDS", "Message invites you to gambling or betting", cfg.rules["gambling_words"]))
+    known = _known_scam_points(inp.known_similarity, cfg)
+    if known:
+        reasons.append(Reason("KNOWN_SCAM", f"Matches a known scam message ({inp.known_similarity:.0%} alike)", known))
 
     for link in inp.links:
         if link.trusted:
@@ -111,7 +125,7 @@ def score_message(inp: ScoreInput, cfg: ScoringConfig | None = None) -> dict:
             score = cfg.suspicious_max + 1
         reasons.append(Reason("HARD_OTP_LINK", "Asks for an OTP/PIN and links to a site that is not official", 0))
     elif (cfg.hard_rules.get("trusted_sender_official_only") and inp.sender_trusted and not unofficial_links
-          and not inp.asks_secret and not inp.brand_mismatch):
+          and not inp.asks_secret and not inp.brand_mismatch and not known):
         score = min(score, cfg.safe_max)
 
     verdict = verdict_for(score, cfg)

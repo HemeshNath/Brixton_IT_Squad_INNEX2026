@@ -1,6 +1,6 @@
 {
   "_note": "How the final score is made (Phase 8). Change numbers here - no code change. Raise 'version' on every change; it is saved with every check. Tuned with real data in phase L1.",
-  "version": "s2",
+  "version": "s3",
   "cutoffs": {
     "_note": "score 0..safe_max = Safe, ..suspicious_max = Suspicious, above = Dangerous",
     "safe_max": 30,
@@ -30,6 +30,13 @@
     "asks_secret": 15,
     "brand_mismatch": 30,
     "gambling_words": 15
+  },
+  "known_scam": {
+    "_note": "Phase 10: similarity (letter patterns, 0-1) to an approved known scam. Normal messages scored <= 0.26 on the seed data, re-worded scams >= 0.41.",
+    "min_similarity": 0.35,
+    "points": 30,
+    "strong_similarity": 0.6,
+    "strong_points": 45
   },
   "hard_rules": {
     "_note": "otp_and_unofficial_link: asks for OTP/PIN and has a non-official link -> at least Dangerous. trusted_sender_official_only: registered company sender, only official links (or none), asks for nothing -> at most Safe.",

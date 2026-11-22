@@ -31,6 +31,7 @@ class ScoringConfig:
     otx: dict
     rules: dict
     hard_rules: dict
+    known_scam: dict
 
 
 def scoring_config() -> ScoringConfig:
@@ -41,6 +42,7 @@ def scoring_config() -> ScoringConfig:
             safe_max=int(d["cutoffs"]["safe_max"]),
             suspicious_max=int(d["cutoffs"]["suspicious_max"]),
             mira=d["mira"], domain_age=d["domain_age"], otx=d["otx"], rules=d["rules"], hard_rules=d["hard_rules"],
+            known_scam=d["known_scam"],
         )
     except (KeyError, TypeError, ValueError) as exc:
         raise RuntimeError(f"{SCORING_FILE}: missing or bad value ({exc})") from None

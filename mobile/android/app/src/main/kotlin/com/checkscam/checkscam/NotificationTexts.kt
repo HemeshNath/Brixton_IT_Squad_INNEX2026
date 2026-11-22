@@ -45,6 +45,7 @@ class NotificationTexts(language: String) {
             "BRAND_IN_DOMAIN" to "लिंकले कम्पनी भएको बहाना गर्छ तर आधिकारिक साइट होइन",
             "TYPOSQUAT" to "लिंक आधिकारिक साइट जस्तै देखिन्छ तर हिज्जे फरक छ",
             "GAMBLING_WORDS" to "सन्देशले जुवा वा बेटिङमा बोलाउँछ",
+            "KNOWN_SCAM" to "पहिले चिनिएको ठगी सन्देशसँग मिल्छ",
             "OTX_REPORTED" to "लिंकबारे AlienVault OTX मा खतरा रिपोर्ट छन्",
             "IP_HOST" to "लिंकमा नामको सट्टा IP ठेगाना मात्र छ",
             "NO_HTTPS" to "लिंक सुरक्षित छैन (HTTPS छैन)",

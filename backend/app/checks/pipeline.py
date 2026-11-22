@@ -4,6 +4,7 @@
   2. OTX + domain age for the links, in parallel               (link_reputation)   <= link budget
   3. build MIRA's prompt with those facts and ask MIRA         (mira_prompt, mira) <= MIRA timeout
   4. message rules: OTP request, brand mismatch, gambling      (textprep, rules)
+     + similarity to approved known scams                     (known_scams)
   5. scoring v2 -> score, verdict, reasons, advice             (scoring)
 Anything slow or failing is skipped and listed in `checks_skipped`; the check never crashes."""
 from __future__ import annotations
@@ -13,6 +14,7 @@ import time
 from dataclasses import dataclass
 
 from .domain_age import DomainAgeClient
+from .known_scams import KnownScamMemory
 from .link_reputation import check_links
 from .links import analyze_url
 from .mira import MiraService, MiraUnavailable
@@ -35,6 +37,7 @@ class Checkers:
     otx: OtxClient | None = None
     ages: DomainAgeClient | None = None
     mira: MiraService | None = None
+    known: KnownScamMemory | None = None
     link_timeout: float = 2.0
 
 
@@ -75,6 +78,17 @@ def run_check(text: str, sender: str, checkers: Checkers) -> dict:
         skipped.append("mira")
     timings["mira"] = round((time.perf_counter() - t) * 1000)
 
+    # 4. known-scam memory (never breaks a check)
+    match = None
+    t = time.perf_counter()
+    if checkers.known is not None:
+        try:
+            match = checkers.known.best_match(masked)
+        except Exception as exc:  # database down etc.
+            log.warning("Known-scam memory skipped: %s", type(exc).__name__)
+            skipped.append("memory")
+    timings["memory"] = round((time.perf_counter() - t) * 1000)
+
     # 4 + 5. rules and score
     result = score_message(ScoreInput(
         probabilities=mira_result.probabilities if mira_result else None,
@@ -86,6 +100,7 @@ def run_check(text: str, sender: str, checkers: Checkers) -> dict:
         not_sure=mira_result.not_sure if mira_result else False,
         brand_mismatch=brand_mismatch(text, links),
         gambling=has_gambling_words(text),
+        known_similarity=match.similarity if match else 0.0,
     ))
     timings["total"] = round((time.perf_counter() - t_start) * 1000)
 
@@ -96,6 +111,7 @@ def run_check(text: str, sender: str, checkers: Checkers) -> dict:
         "links": [{"url": mask_pii(l.url), "domain": l.domain, "trusted": l.trusted, "ip": l.ip,
                    "country": l.country, "otx_reports": l.otx_reports, "domain_age_days": l.domain_age_days}
                   for l in links],
+        "known_scam": {"id": match.id, "similarity": match.similarity} if match else None,
         "checks_skipped": sorted(set(skipped)),
         "model_version": checkers.mira.version if (checkers.mira and checkers.mira.ready) else "",
         "prompt_version": cfg.version,
