@@ -63,17 +63,22 @@ data class GuardConfig(
     val devUser: String,
     val authToken: String,
     val language: String = "en", // "en" | "ne" (app setting), used for the notification texts
+    val syncedTrustedSenders: Set<String> = emptySet(), // official sender IDs from the server (A10)
 ) {
     companion object {
         fun load(ctx: Context): GuardConfig {
             val p = ctx.getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
             return GuardConfig(
-                enabled = p.getBoolean("flutter.protection_enabled", true),
-                watchChatApps = p.getBoolean("flutter.watch_chat_apps", false),
+                // A10: an app older than the server's minimum version stops checking until it is updated
+                enabled = p.getBoolean("flutter.protection_enabled", true) && !p.getBoolean("flutter.must_update", false),
+                // A10: the admin panel can switch chat apps off for everyone
+                watchChatApps = p.getBoolean("flutter.watch_chat_apps", false) && p.getBoolean("flutter.chat_apps_allowed", true),
                 apiBaseUrl = p.getString("flutter.api_base_url", "") ?: "",
                 devUser = p.getString("flutter.dev_user", "") ?: "",
                 authToken = p.getString("flutter.auth_token", "") ?: "",
                 language = p.getString("flutter.language", "en") ?: "en",
+                syncedTrustedSenders = (p.getString("flutter.synced_trusted_senders", "") ?: "")
+                    .split("\n").map { LocalFilter.senderKey(it) }.filter { it.isNotEmpty() }.toSet(),
             )
         }
     }
@@ -131,13 +136,17 @@ object LocalFilter {
 
     fun isOtp(text: String) = otpWord.containsMatchIn(text) && otpDigits.containsMatchIn(text) && !link.containsMatchIn(text)
 
-    fun isTrustedSender(sender: String): Boolean {
-        val key = sender.lowercase().replace(Regex("[^a-z0-9]"), "")
-        return key.isNotEmpty() && trustedSenders.any { key == it || key.startsWith(it) }
+    fun senderKey(sender: String) = sender.lowercase().replace(Regex("[^a-z0-9]"), "")
+
+    /** Built-in official sender IDs plus the server's list (A10: synced every time the app opens). */
+    fun isTrustedSender(sender: String, extra: Set<String> = emptySet()): Boolean {
+        val key = senderKey(sender)
+        return key.isNotEmpty() && (trustedSenders + extra).any { key == it || key.startsWith(it) }
     }
 
     /** OTPs are skipped always. Trusted senders are skipped only when the message has no link. */
-    fun shouldSkip(msg: IncomingMessage) = isOtp(msg.text) || (isTrustedSender(msg.sender) && !link.containsMatchIn(msg.text))
+    fun shouldSkip(msg: IncomingMessage, extra: Set<String> = emptySet()) =
+        isOtp(msg.text) || (isTrustedSender(msg.sender, extra) && !link.containsMatchIn(msg.text))
 }
 
 object ApiClient {
@@ -166,7 +175,7 @@ object ApiClient {
             conn = (URL(cfg.apiBaseUrl.trimEnd('/') + "/check/sms").openConnection() as HttpURLConnection).apply {
                 requestMethod = "POST"
                 connectTimeout = 3000
-                readTimeout = 95_000 // B7: MIRA with the owner's prompt takes ~30-70 s; the server stops at 90 s
+                readTimeout = 25_000 // trained model ~0.1 s + link lookups up to a few seconds (server stops at 20 s)
                 doOutput = true
                 setRequestProperty("Content-Type", "application/json")
                 if (token != null) setRequestProperty("Authorization", "Bearer $token")

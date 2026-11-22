@@ -11,6 +11,8 @@ class HealthOut(BaseModel):
     mira_loaded: bool
     mira_status: str  # disabled | not_started | loading | ready | failed
     model_version: str | None
+    trained_model_status: str = "not_found"  # not_found | not_started | loading | ready | failed
+    trained_model: str | None = None
 
 
 @router.get("/health", response_model=HealthOut)
@@ -23,4 +25,6 @@ def health(request: Request) -> HealthOut:
         mira_loaded=bool(mira and mira.ready),
         mira_status=mira.status if mira else "disabled",
         model_version=mira.version if mira else None,
+        trained_model_status=getattr(getattr(request.app.state, "classifier", None), "status", "not_found"),
+        trained_model=getattr(getattr(request.app.state, "classifier", None), "version", None),
     )

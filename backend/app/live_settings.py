@@ -20,11 +20,12 @@ from sqlalchemy.orm import Session
 
 from .checks import rules
 from .checks.owner_decision import config as owner_config
+from .checks.pipeline import TRAINED_DEFAULTS
 from .checks.sender_trust import DEFAULTS as SENDER_TRUST_DEFAULTS
 from .db import SettingsVersion
 
 log = logging.getLogger("checkscam.settings")
-PHONE_WAIT_SECONDS = 90.0  # B6: the phone waits at most this long for a whole check (MIRA with the owner's prompt: 26-55 s)
+PHONE_WAIT_SECONDS = 20.0  # old MIRA removed (trained model ~0.1 s); was 90.0  # B6: the phone waits at most this long for a whole check (MIRA with the owner's prompt: 26-55 s)
 
 
 @dataclass(frozen=True)
@@ -45,14 +46,8 @@ class Field:
 FIELDS: list[Field] = [
     Field("switches", "otx", "AlienVault OTX (IP Reputation)", "bool",
           help="Off: links are not sent to OTX; the prompt says 'No reply from OTX'."),
-    Field("switches", "whois", "WHOIS (Domain Information)", "bool",
-          help="Off: links are not looked up in WHOIS; the prompt says 'No reply from WHOIS'."),
-    Field("switches", "mira", "MIRA decision", "bool",
-          help="Off: no message gets a class (every check says 'Not checked')."),
-    Field("timeouts", "mira_seconds", "MIRA time limit (s)", "float", 1, 85,
-          "MIRA gives no answer (verdict unknown) if slower. Links + MIRA must stay under the phone's 90 s."),
-    Field("timeouts", "links_seconds", "Link checks time limit (s)", "float", 0.5, 10,
-          "OTX + WHOIS wait this long, then the check goes on with what has come back."),
+    Field("timeouts", "links_seconds", "Link check time limit (s)", "float", 0.5, 10,
+          "The OTX reputation lookup waits this long; a slower answer still finishes and is saved for next time."),
     Field("sender_trust", "enabled", "Use sender trust", "bool",
           help="Off: saved contacts and sender history do not change the Probability."),
     Field("sender_trust", "contact_points", "Saved contact", "int", -50, 0,
@@ -64,15 +59,21 @@ FIELDS: list[Field] = [
     Field("sender_trust", "new_points", "First message from a new sender", "int", 0, 50,
           "Added for the first message from a sender that is not a saved contact (red flag)."),
 ]
-GROUPS = {"switches": "On / off", "timeouts": "Time limits", "sender_trust": "Sender trust"}
+FIELDS += [
+    Field("trained_model", "temperature", "Score softness (T)", "float", 1, 10,
+          "1 = mostly 0% or 100%; higher = more graded scores. The decision (above / below 50%) stays the same."),
+]
+GROUPS = {"switches": "On / off", "timeouts": "Time limits", "sender_trust": "Sender trust",
+          "trained_model": "Trained model"}
 
 
 def defaults(settings) -> dict:
     """Version 0: the .env values."""
     return {
-        "switches": {"otx": True, "whois": bool(settings.whois_enabled), "mira": bool(settings.mira_enabled)},
-        "timeouts": {"mira_seconds": settings.mira_timeout_seconds, "links_seconds": settings.link_checks_timeout_seconds},
+        "switches": {"otx": True},
+        "timeouts": {"links_seconds": settings.link_checks_timeout_seconds},
         "sender_trust": dict(SENDER_TRUST_DEFAULTS),
+        "trained_model": {"temperature": TRAINED_DEFAULTS["temperature"]},
     }
 
 
@@ -115,8 +116,8 @@ def validate(data: dict) -> tuple[dict, list[str]]:
         clean[f.group][f.key] = value
     if not problems:
         t = clean["timeouts"]
-        if t["mira_seconds"] + t["links_seconds"] > PHONE_WAIT_SECONDS - 0.5:
-            problems.append(f"Link + MIRA time limits must add up to at most {PHONE_WAIT_SECONDS - 0.5:g} s "
+        if t["links_seconds"] > PHONE_WAIT_SECONDS - 5:
+            problems.append(f"The link time limit must be at most {PHONE_WAIT_SECONDS - 5:g} s "
                             f"(the phone waits {PHONE_WAIT_SECONDS:g} s).")
     return clean, problems
 
@@ -132,9 +133,10 @@ def apply(app, data: dict, number: int) -> None:
     rules.set_scoring_override(None)  # B8: the old points settings are gone; scoring.py is not used by checks
     checkers = app.state.checkers
     checkers.link_timeout = float(data["timeouts"]["links_seconds"])
-    checkers.switches = dict(data["switches"])
+    # old MIRA is only used when USE_ORIGINAL_MIRA is on in .env (it is not an admin setting any more)
+    checkers.switches = dict(data["switches"]) | {"mira": bool(getattr(app.state.settings, "use_original_mira", False))}
     checkers.sender_trust = dict(data["sender_trust"])
-    app.state.mira.timeout = float(data["timeouts"]["mira_seconds"])
+    checkers.trained = dict(data["trained_model"])
     app.state.settings_version = number
 
 

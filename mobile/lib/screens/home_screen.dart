@@ -6,12 +6,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../l10n/strings.dart';
+import '../models/app_config.dart';
 import '../models/check_result.dart';
 import '../services/api.dart';
 import '../services/native_bridge.dart';
 import '../services/settings.dart';
 import '../theme/app_theme.dart';
 import '../widgets/language_button.dart';
+import '../widgets/app_banners.dart';
 import '../widgets/result_card.dart';
 import 'check_detail_screen.dart';
 import 'history_screen.dart';
@@ -44,6 +46,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   String? _error;
   CheckResult? _result;
   String _checkedText = '';
+  AppConfig? _config; // app control from the server (A10)
+  List<AdItem> _ads = const []; // home-screen banner (A9)
 
   @override
   void initState() {
@@ -56,6 +60,29 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       final check = await NativeBridge.takeLaunchCheck();
       if (check != null && mounted) _showTappedCheck(check);
     });
+    _loadServerExtras();
+  }
+
+  /// App control (A10) and ads (A9). Never blocks the app: without the server, the last saved values are used.
+  Future<void> _loadServerExtras() async {
+    final api = widget.apiFactory();
+    try {
+      final config = await api.appConfig();
+      await widget.settings.applyAppConfig(config);
+      if (mounted) setState(() => _config = config);
+    } catch (_) {
+      // offline or old server: keep what we had
+    }
+    try {
+      final ads = await api.activeAds(widget.settings.language);
+      if (mounted) setState(() => _ads = ads);
+    } catch (_) {
+      // no ads - no banner
+    }
+  }
+
+  void _adEvent(AdItem ad, String kind) {
+    widget.apiFactory().adEvent(ad.id, kind).catchError((_) {});
   }
 
   void _showTappedCheck(TappedCheck check) {
@@ -101,6 +128,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _check() async {
+    if (widget.settings.mustUpdate) return; // this app version is too old (A10)
     final text = _text.text.trim();
     if (text.isEmpty) {
       setState(() => _error = S.of(context).pasteFirst);
@@ -300,10 +328,28 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                           constraints: BoxConstraints(minHeight: box.maxHeight),
                           child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
                             const SizedBox(height: 24),
+                            if (_config?.notice != null && _config!.notice!.key != widget.settings.dismissedNotice) ...[
+                              NoticeCard(
+                                notice: _config!.notice!,
+                                onDismiss: () async {
+                                  await widget.settings.dismissNotice(_config!.notice!.key);
+                                  setState(() {});
+                                },
+                              ),
+                              const SizedBox(height: 16),
+                            ],
                             protection,
                             const SizedBox(height: 28),
-                            input,
-                            error,
+                            if (widget.settings.mustUpdate)
+                              UpdateCard(config: _config ?? const AppConfig(mustUpdate: true))
+                            else ...[
+                              input,
+                              error,
+                            ],
+                            if (_ads.isNotEmpty) ...[
+                              const SizedBox(height: 24),
+                              AdBanner(ads: _ads, onEvent: _adEvent),
+                            ],
                             const SizedBox(height: 48),
                           ]),
                         ),
@@ -450,6 +496,7 @@ class _ProtectionCard extends StatelessWidget {
               onChanged();
             },
           ),
+          if (settings.chatAppsAllowed) // the admin panel can switch chat apps off for everyone (A10)
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
             title: Text(s.chatApps, style: const TextStyle(fontSize: 17)),

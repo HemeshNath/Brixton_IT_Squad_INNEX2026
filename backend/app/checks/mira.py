@@ -20,6 +20,8 @@ from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeout
 from dataclasses import dataclass, field
 
+from .model_lock import LOAD_LOCK
+
 log = logging.getLogger("checkscam.mira")
 
 # Backend flow B5: the owner's prompt is ~900-1,500 tokens (full WHOIS + two examples), so pairs may be long.
@@ -202,7 +204,8 @@ class MiraService:
     def _load(self) -> None:
         t0 = time.perf_counter()
         try:
-            self.model = self._loader()
+            with LOAD_LOCK:  # never at the same time as the trained model (see model_lock.py)
+                self.model = self._loader()
             if self.warmup is not None:
                 try:
                     t1 = time.perf_counter()
@@ -216,7 +219,7 @@ class MiraService:
         except Exception as exc:
             self.error = type(exc).__name__
             self.status = "failed"
-            log.error("MIRA failed to load: %s", self.error)
+            log.exception("MIRA failed to load: %s", self.error)
 
     def batch(self, questions: list[Question]) -> list[MiraAnswer]:
         if not self.enabled:

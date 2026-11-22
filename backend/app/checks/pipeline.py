@@ -6,6 +6,9 @@
   3. the owner's MIRA prompt from those variables                         (owner_prompt)
   4. MIRA chooses one of the five risk classes and answers the five
      questions -> Probability (0-100) and Class                           (owner_decision)
+  4b. the owner's trained model (fine-tuned MIRA, scam_classifier.py), when switched on and loaded, sets the
+     Probability instead of step 4's class choice; MIRA then only answers the five questions (if "ask_questions"
+     is on) for the text in brackets. If the trained model is missing or fails, step 4 decides as before.
   5. sender trust from the phone: saved contact / frequent sender lower the Probability, a first message from a
      new sender raises it; the Class follows the new Probability                (sender_trust)
 MIRA alone decides (B6). If MIRA cannot answer (loading, too slow), the verdict is "unknown" - never a guess.
@@ -23,19 +26,22 @@ from ..data_lists import Blocklist
 from .context import build_context
 from .domain_age import DomainAgeClient
 from .known_scams import KnownScamMemory
-from .link_reputation import check_links
+from .link_reputation import check_otx_only
 from .links import analyze_url
 from .mira import MiraService, MiraUnavailable
 from .otx import OtxClient
 from .owner_decision import OwnerDecision, build_batch, config as owner_config, interpret
 from .owner_decision import class_for
 from .owner_prompt import VERSION as PROMPT_VERSION, build_prompt
+from .quick_questions import answers as quick_answers
+from .scam_classifier import ClassifierUnavailable, ScamClassifier
 from .sender_trust import SenderFacts, adjustments as trust_adjustments, apply as apply_trust
 from .textprep import extract_urls, mask_pii
 
 log = logging.getLogger("checkscam.pipeline")
 
 MAX_TEXT = 2000
+TRAINED_DEFAULTS = {"enabled": True, "temperature": 3.0, "ask_questions": False}  # old MIRA's questions: off (slow)
 
 
 @dataclass
@@ -49,6 +55,13 @@ class Checkers:
     blocklist: Blocklist | None = None  # admin panel block lists (Phase 10A)
     switches: dict = field(default_factory=dict)  # admin panel on/off: otx, whois, mira, memory (missing = on)
     sender_trust: dict = field(default_factory=dict)  # admin panel sender-trust points (missing = sender_trust.DEFAULTS)
+    classifier: ScamClassifier | None = None  # the owner's trained model (fine-tuned MIRA)
+    trained: dict = field(default_factory=dict)  # admin panel: enabled, temperature, ask_questions (missing = TRAINED_DEFAULTS)
+
+    def trained_model(self) -> ScamClassifier | None:
+        """The trained model if it is switched on in the settings and loaded, else None."""
+        c = {**TRAINED_DEFAULTS, **self.trained}
+        return self.classifier if (c["enabled"] and self.classifier is not None and self.classifier.ready) else None
 
     def on(self, name: str):
         """The checker if it exists and is switched on, else None."""
@@ -68,42 +81,70 @@ def run_check(text: str, sender: str, checkers: Checkers, detail: bool = False, 
     links = [l for l in (analyze_url(u) for u in extract_urls(text)) if l is not None]
     masked = mask_pii(text)
 
-    # 2. every link -> OTX + WHOIS at the same time
+    # 2. every link -> its reputation from AlienVault OTX (one call per link, all at the same time). WHOIS is no longer
+    #    used for messages (the owner's choice); it only still checks ad links in the admin panel.
     skipped: list[str] = []
     t = time.perf_counter()
-    otx, ages = checkers.on("otx"), checkers.on("whois")
-    if links and (otx or ages):
-        skipped += check_links(links, otx, total_timeout=checkers.link_timeout, ages=ages)
-        if otx is None:
-            skipped.append("otx")
-        if ages is None:
-            skipped.append("whois")
-    elif links:
-        skipped += ["otx", "whois"]
+    if links:
+        skipped += check_otx_only(links, checkers.on("otx"), total_timeout=checkers.link_timeout)
     timings["links"] = round((time.perf_counter() - t) * 1000)
 
     # 3. the owner's prompt from the replies
     context = build_context(source, masked, links)
     prompt = build_prompt(context)
 
-    # 4. MIRA decides
+    # 4b. the owner's trained model sets the Probability (falls back to step 4 if it is off, missing or fails)
+    trained_cfg = {**TRAINED_DEFAULTS, **checkers.trained}
+    trained_probability: float | None = None
+    model = checkers.trained_model()
+    if model is not None:
+        t = time.perf_counter()
+        try:
+            trained_probability = model.probability(text, float(trained_cfg["temperature"]))
+        except ClassifierUnavailable as exc:
+            log.info("Trained model skipped: %s", exc.reason)
+            skipped.append("trained_model")
+        timings["trained_model"] = round((time.perf_counter() - t) * 1000)
+
+    # 4. MIRA: decides (no trained model) or only answers the five questions (trained model + ask_questions)
     decision: OwnerDecision | None = None
+    mira_decision: OwnerDecision | None = None
     t = time.perf_counter()
     mira = checkers.on("mira")
-    if mira is not None:
+    mira_usable = mira is not None and getattr(mira, "enabled", True)  # old MIRA is off unless USE_ORIGINAL_MIRA
+    want_mira = mira_usable and (trained_probability is None or bool(trained_cfg["ask_questions"]))
+    if want_mira:
         try:
-            decision = interpret(mira.batch(build_batch(prompt)), has_link=bool(links))
+            mira_decision = interpret(mira.batch(build_batch(prompt)), has_link=bool(links))
         except MiraUnavailable as exc:
             log.info("MIRA skipped: %s", exc.reason)
             skipped.append("mira")
+        timings["mira"] = round((time.perf_counter() - t) * 1000)
+    if trained_probability is None and not mira_usable:
+        skipped.append("trained_model")  # nothing could decide -> "Not checked"
+
+    if trained_probability is not None:
+        probability = max(0, min(100, round(trained_probability * 100)))
+        chosen = class_for(probability)
+        decision = OwnerDecision(
+            probability=probability, class_id=chosen.id, class_label=chosen.label, reason="",
+            # the five questions: MIRA's answers if it was asked, else the instant answers (quick_questions.py)
+            warnings=list(mira_decision.warnings) if mira_decision else
+            quick_answers(text, links, {q.id: q.reason for q in owner_config().questions}),
+            class_probabilities={}, question_yes=dict(mira_decision.question_yes) if mira_decision else {},
+            version=f"{owner_config().version}+{model.version}",
+        )
     else:
-        skipped.append("mira")
-    timings["mira"] = round((time.perf_counter() - t) * 1000)
+        decision = mira_decision
     timings["total"] = round((time.perf_counter() - t_start) * 1000)
 
     trust = trust_adjustments(sender_facts, checkers.sender_trust) if decision is not None else []
     result = _verdict(decision, bool(links), trust)
     result["mira_probability"] = decision.probability if decision is not None else None
+    result["decided_by"] = "trained_model" if trained_probability is not None else ("mira" if decision else None)
+    result["trained_model"] = None if trained_probability is None else {
+        "probability": round(trained_probability, 4), "temperature": float(trained_cfg["temperature"]),
+        "model": model.version, "questions_asked": mira_decision is not None}
     result["sender_trust"] = trust
     result.update({
         "links": [{"url": mask_pii(l.url), "domain": l.domain, "trusted": l.trusted, "ip": l.ip,
@@ -111,7 +152,8 @@ def run_check(text: str, sender: str, checkers: Checkers, detail: bool = False, 
                    "otx_counts": l.otx_counts}
                   for l in links],
         "checks_skipped": sorted(set(skipped)),
-        "model_version": checkers.mira.version if (checkers.mira and checkers.mira.ready) else "",
+        "model_version": (model.version if trained_probability is not None else
+                          checkers.mira.version if (checkers.mira and checkers.mira.ready) else ""),
         "prompt_version": PROMPT_VERSION,
         "timings_ms": timings,
         "masked_text": masked,
@@ -120,7 +162,8 @@ def run_check(text: str, sender: str, checkers: Checkers, detail: bool = False, 
         "mira_prompt": prompt,  # B4: the owner's prompt (not saved, not sent to phones)
     })
     if detail:
-        result["detail"] = _detail(decision, prompt, links)
+        # MIRA's own answers (classes and questions) - also when the trained model set the Probability
+        result["detail"] = _detail(mira_decision, prompt, links)
     log.info("check class=%s probability=%s links=%d skipped=%s total=%sms", result["risk_class"],
              result["score"], len(links), result["checks_skipped"], timings["total"])
     return result

@@ -6,6 +6,7 @@ import 'dart:io';
 
 import 'package:http/http.dart' as http;
 
+import '../models/app_config.dart';
 import '../models/check_result.dart';
 
 class ApiException implements Exception {
@@ -42,10 +43,10 @@ class ApiService {
     this.authToken = '',
     this.tokenProvider,
     this.timeout = const Duration(seconds: 10),
-    this.checkTimeout = const Duration(seconds: 95),
+    this.checkTimeout = const Duration(seconds: 25),
   });
 
-  /// A message check waits much longer (B7): MIRA with the owner's prompt takes ~30-70 s; the server stops at 90 s.
+  /// A message check may wait a bit longer than other calls: link lookups (OTX + WHOIS) take up to a few seconds.
   final Duration checkTimeout;
 
   /// Sign-in order: Google (fresh Firebase token) -> fixed token -> development name.
@@ -121,6 +122,32 @@ class ApiService {
         headers: h, body: jsonEncode({'text': text, 'sender': sender, 'source': 'manual'})), wait: checkTimeout);
     return CheckResult.fromJson(Map<String, dynamic>.from(body as Map));
   }
+
+  // ---- app control (A10) and ads (A9) ----
+  /// Read every time the app opens (also before sign-in): minimum version, notice, chat-apps switch, senders.
+  Future<AppConfig> appConfig() async => AppConfig.fromJson(Map<String, dynamic>.from(
+      await _send((_) => client.get(_u('/app/config', {'version': kAppVersion})), auth: false) as Map));
+
+  Future<List<AdItem>> activeAds(String language) async {
+    final list = await _send((h) => client.get(_u('/ads/active', {'lang': language}), headers: h)) as List;
+    return [
+      for (final a in list)
+        AdItem(
+          id: (a as Map)['id'] as int,
+          title: a['title'] as String? ?? '',
+          body: a['body'] as String? ?? '',
+          link: a['link'] as String? ?? '',
+          imageUrl: a['image_url'] == null ? null : serverUrl(a['image_url'] as String),
+        ),
+    ];
+  }
+
+  /// Counts a banner view or tap (no personal data).
+  Future<void> adEvent(int id, String kind) =>
+      _send((h) => client.post(_u('/ads/$id/event'), headers: h, body: jsonEncode({'kind': kind})));
+
+  /// "/api/v1/ads/3/image" -> "http://host:8000/api/v1/ads/3/image"
+  String serverUrl(String path) => baseUrl.replaceFirst(RegExp(r'/api/v1$'), '') + path;
 
   Future<HistoryPage> history({int page = 1}) async {
     final body = await _send((h) => client.get(_u('/history', {'page': '$page'}), headers: h)) as Map;

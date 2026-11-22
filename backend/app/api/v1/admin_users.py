@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 
 from ...admin_auth import audit, require_role
 from ...db import AdminUser, Check, Feedback, Profile, get_db
-from .admin_dashboard import _nepal_date, nepal_day_start
+from .admin_dashboard import _nepal_date, nepal_day_start, utc
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 PAGE_SIZE = 25
@@ -69,7 +69,7 @@ def list_users(search: str = Query("", max_length=100), sort: Literal["last_seen
                page: int = 1, db: Session = Depends(get_db), _: AdminUser = Depends(require_role("admin"))):
     page = max(1, page)
     now = datetime.now(timezone.utc)
-    stats = _stats_query(nepal_day_start(now), nepal_day_start(now, 6))
+    stats = _stats_query(utc(nepal_day_start(now)), utc(nepal_day_start(now, 6)))
     q = select(Profile, stats).outerjoin(stats, stats.c.uid == Profile.uid)
     if search.strip():
         like = f"%{search.strip().lower()}%"
@@ -81,7 +81,7 @@ def list_users(search: str = Query("", max_length=100), sort: Literal["last_seen
                       .offset((page - 1) * PAGE_SIZE).limit(PAGE_SIZE)).all()
     blocked = db.scalar(select(func.count()).select_from(Profile).where(Profile.blocked.is_(True))) or 0
     active_today = db.scalar(select(func.count()).select_from(Profile).where(
-        Profile.last_seen_at >= nepal_day_start(now))) or 0
+        Profile.last_seen_at >= utc(nepal_day_start(now)))) or 0
     return {"page": page, "total": total, "has_next": page * PAGE_SIZE < total,
             "summary": {"users": db.scalar(select(func.count()).select_from(Profile)) or 0,
                         "active_today": active_today, "blocked": blocked},
@@ -99,10 +99,10 @@ def _get(db: Session, uid: str) -> Profile:
 def user_detail(uid: str, db: Session = Depends(get_db), _: AdminUser = Depends(require_role("admin"))):
     p = _get(db, uid)
     now = datetime.now(timezone.utc)
-    stats = _stats_query(nepal_day_start(now), nepal_day_start(now, 6))
+    stats = _stats_query(utc(nepal_day_start(now)), utc(nepal_day_start(now, 6)))
     s = db.execute(select(stats).where(stats.c.uid == uid)).first()
     start = nepal_day_start(now, 29)
-    recent = db.execute(select(Check.created_at, Check.source).where(Check.user_id == uid, Check.created_at >= start)).all()
+    recent = db.execute(select(Check.created_at, Check.source).where(Check.user_id == uid, Check.created_at >= utc(start))).all()
     per_day = Counter(_nepal_date(r.created_at) for r in recent)
     days = [(start + timedelta(days=i)).date().isoformat() for i in range(30)]
     sources = Counter(src for src in db.scalars(select(Check.source).where(Check.user_id == uid)))

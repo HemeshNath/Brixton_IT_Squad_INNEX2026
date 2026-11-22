@@ -14,8 +14,8 @@ from pathlib import Path
 from string import Template
 
 TEMPLATE_PATH = Path(__file__).resolve().parent.parent / "data" / "mira_prompt_owner.txt"
-PLACES = ("source", "content", "url", "ip_reputation", "domain_information")
-VERSION = "owner-v1"
+PLACES = ("source", "content", "url", "ip_reputation")
+VERSION = "owner-v2"  # v2: only the four Context lines (old MIRA removed; WHOIS no longer used for messages)
 
 
 @lru_cache(maxsize=1)

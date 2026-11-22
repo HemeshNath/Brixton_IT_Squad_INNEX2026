@@ -91,8 +91,8 @@ class _TestLabScreenState extends State<TestLabScreen> {
     final r = _r;
     return SectionPage(
       title: 'Test lab',
-      about: 'Paste a message to see exactly how the live system judges it (owner\'s prompt and MIRA). '
-          'A check takes about 30–70 seconds. Nothing is saved to any history.',
+      about: 'Paste a message to see exactly how the live system judges it (trained model, link lookups, the five '
+          'questions and sender trust). A check takes a few seconds. Nothing is saved to any history.',
       children: [
         Card(
           margin: EdgeInsets.zero,
@@ -180,7 +180,7 @@ class _TestLabScreenState extends State<TestLabScreen> {
                           value: _lookups,
                           onChanged: (v) => setState(() => _lookups = v),
                         ),
-                        const Text('Look links up in OTX and WHOIS (uses OTX quota)'),
+                        const Text('Look links up in AlienVault OTX (uses OTX quota)'),
                       ],
                     ),
                   ],
@@ -203,7 +203,7 @@ class _TestLabScreenState extends State<TestLabScreen> {
                             child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                           )
                         : const Icon(Icons.science_outlined),
-                    label: Text(_busy ? 'Checking… (up to a minute)' : 'Check'),
+                    label: Text(_busy ? 'Checking…' : 'Check'),
                   ),
                 ),
               ],
@@ -221,7 +221,12 @@ class _TestLabScreenState extends State<TestLabScreen> {
     final owner = r['owner_result'] == null ? null : Map<String, dynamic>.from(r['owner_result'] as Map);
     final detail = Map<String, dynamic>.from(r['detail'] as Map? ?? {});
     final mira = detail['mira'] == null ? null : Map<String, dynamic>.from(detail['mira'] as Map);
-    final links = [for (final l in detail['links'] as List? ?? []) Map<String, dynamic>.from(l as Map)];
+    // one entry per site: "https://x.xyz/a" and the bare "x.xyz" in the same message are the same site
+    final seenHosts = <String>{};
+    final links = [
+      for (final l in detail['links'] as List? ?? [])
+        if (seenHosts.add('${(l as Map)['host'] ?? l['domain']}'.toLowerCase())) Map<String, dynamic>.from(l),
+    ];
     final context = Map<String, dynamic>.from(r['context'] as Map? ?? {});
     final timings = Map<String, dynamic>.from(r['timings_ms'] as Map? ?? {});
     final skipped = [for (final s in r['checks_skipped'] as List? ?? []) '$s'];
@@ -259,9 +264,16 @@ class _TestLabScreenState extends State<TestLabScreen> {
                         key: const Key('labOwnerResult'),
                         style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
                       ),
+                    if (r['decided_by'] == 'trained_model')
+                      Text(
+                        'Decided by the trained model (${r['trained_model']['model']}, T=${r['trained_model']['temperature']})'
+                        '${r['trained_model']['questions_asked'] == true ? " · brackets from old MIRA's answers" : ' · the five questions answered instantly'}',
+                        key: const Key('labDecidedBy'),
+                        style: const TextStyle(fontSize: 13, color: AppColors.purpleDark),
+                      ),
                     if ((r['sender_trust'] as List? ?? []).isNotEmpty)
                       Text(
-                        'MIRA said ${r['mira_probability']}% → sender trust '
+                        '${r['decided_by'] == 'trained_model' ? 'Trained model' : 'MIRA'} said ${r['mira_probability']}% → sender trust '
                         '${[for (final x in r['sender_trust'] as List) '${(x as Map)['points'] > 0 ? '+' : ''}${x['points']} ${x['text']}'].join(', ')}'
                         ' → ${r['score']}%',
                         key: const Key('labTrust'),
@@ -284,9 +296,13 @@ class _TestLabScreenState extends State<TestLabScreen> {
       ),
       const SizedBox(height: 14),
       _box(
-        'MIRA',
+        r['decided_by'] == 'trained_model' ? 'Old MIRA' : 'MIRA',
         mira == null
-            ? Text(skipped.contains('mira') ? 'MIRA gave no answer (switched off, still loading or too slow).' : 'Not used.')
+            ? Text(skipped.contains('mira')
+                ? 'MIRA gave no answer (switched off, still loading or too slow).'
+                : r['decided_by'] == 'trained_model'
+                    ? 'Not used: old MIRA is replaced by the trained model. The five questions are answered instantly from words, OTX and WHOIS.'
+                    : 'Not used.')
             : _miraView(mira),
       ),
       const SizedBox(height: 14),
@@ -298,8 +314,7 @@ class _TestLabScreenState extends State<TestLabScreen> {
             for (final k in const [
               ('source', 'Source'),
               ('url', 'URL'),
-              ('ip_reputation', 'IP Reputation'),
-              ('domain_information', 'Domain Information'),
+              ('ip_reputation', 'IP Reputation (AlienVault OTX)'),
             ])
               Padding(
                 padding: const EdgeInsets.only(bottom: 6),
@@ -329,7 +344,7 @@ class _TestLabScreenState extends State<TestLabScreen> {
             Wrap(
               spacing: 10,
               children: [
-                for (final k in ['links', 'mira', 'total'])
+                for (final k in ['links', 'trained_model', 'mira', 'total'])
                   if (timings.containsKey(k)) Chip(label: Text('$k: ${_ms(timings[k])}'), side: BorderSide.none),
               ],
             ),

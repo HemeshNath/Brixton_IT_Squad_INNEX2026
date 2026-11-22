@@ -13,6 +13,7 @@ dependencies:
     sdk: flutter
   http: ^1.6.0          # calls to /api/v1/admin (same server, cookie sign-in)
   url_launcher: ^6.3.2  # opens CSV exports (download in a new tab)
+  web: ^1.1.2           # picking an ad picture in the browser (A9)
 
 dev_dependencies:
   flutter_test:

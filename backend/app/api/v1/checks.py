@@ -9,6 +9,8 @@ POST   /api/v1/feedback         "Wrong result?" - stored for review (Phase 10)
 Only masked text is stored (no phone numbers, OTPs, names...)."""
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -23,7 +25,8 @@ from ...checks.owner_decision import config as owner_config
 from ...checks.sender_trust import SenderFacts
 from ...checks.sources import source_name
 from ...checks.textprep import extract_urls, mask_pii
-from ...db import Check, Feedback, Profile, get_db
+from ...checks.memcache import save_later
+from ...db import Check, Feedback, Profile, get_db, new_id
 
 router = APIRouter(tags=["checks"])
 PAGE_SIZE = 20
@@ -77,6 +80,7 @@ def _check_and_save(request: Request, db: Session, user: Profile, text: str, sen
                        sender_facts=facts)
     settings = request.app.state.settings
     row = Check(
+        id=new_id(), created_at=datetime.now(timezone.utc),  # set here: the phone gets them before the row is saved
         user_id=user.uid, source=source, source_app=source_app[:128], sender=mask_pii(sender)[:128],
         text=result["masked_text"] if settings.store_message_text else "",
         verdict=result["verdict"], score=result["score"], label=result["label"], not_sure=result["not_sure"],
@@ -86,15 +90,26 @@ def _check_and_save(request: Request, db: Session, user: Profile, text: str, sen
         option_set_version=f"{result['prompt_version']}/{result['scoring_version']}",
         timings_ms=result["timings_ms"],
     )
-    try:
-        db.add(row)
-        db.commit()
-    except OperationalError:  # the database connection dropped (Supabase pooler) - retry once on a fresh one
-        db.rollback()
-        with request.app.state.sessionmaker() as retry:
-            retry.add(row)
-            retry.commit()
-    return _public(row) | {"scam_type": result["scam_type"]}
+    answer = _public(row) | {"scam_type": result["scam_type"]}
+    sessions = request.app.state.sessionmaker
+
+    def save() -> None:
+        try:
+            with sessions() as s:
+                s.add(row)
+                s.commit()
+        except OperationalError:  # the database connection dropped (Supabase pooler) - retry once on a fresh one
+            with sessions() as retry:
+                retry.add(row)
+                retry.commit()
+
+    # Speed: the phone gets its answer first; the row (history, reports, dashboard) is saved right after.
+    # Supabase is far away, so saving first cost the phone ~0.3-1 s on every check.
+    if settings.save_checks_in_background:
+        save_later(save)
+    else:
+        save()
+    return answer
 
 
 # Plain `def` endpoints: FastAPI runs them in a worker thread, so a slow check never blocks others.

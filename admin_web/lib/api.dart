@@ -159,7 +159,7 @@ class AdminApi {
   Uri exportUrl(String file) => base.resolve(file);
 
   // ---- test lab (admin+) ----
-  /// One check with the owner's flow (B8). MIRA with the owner's prompt takes ~30-70 s, so this waits up to 95 s.
+  /// One check with the live system (trained model + link lookups: a few seconds); waits up to 30 s.
   Future<Map<String, dynamic>> testLab(String text,
           {String source = 'SMS', bool linkLookups = true, bool? inContacts, int? seenBefore}) async =>
       await _send(
@@ -171,9 +171,37 @@ class AdminApi {
                   'sender_in_contacts': inContacts,
                   'sender_seen_before': seenBefore,
                 })),
-            wait: const Duration(seconds: 95),
+            wait: const Duration(seconds: 30),
           )
           as Map<String, dynamic>;
+
+  // ---- scam trends (reviewer+, A8) ----
+  Future<Map<String, dynamic>> trends({int days = 7}) async =>
+      await _get('trends', {'days': '$days'}) as Map<String, dynamic>;
+
+  // ---- ads (admin+, A9) ----
+  Future<List<Map<String, dynamic>>> ads() async => [for (final x in await _get('ads') as List) x as Map<String, dynamic>];
+  /// Create (id == null) or change an ad. The link is checked on the server; a risky link cannot be switched on.
+  /// Checking the link may take a few seconds (OTX + WHOIS), so this waits up to 40 s.
+  Future<Map<String, dynamic>> saveAd(Map<String, dynamic> ad, {int? id}) async =>
+      await _send(
+            id == null
+                ? client.post(_u('ads'), headers: _change, body: jsonEncode(ad))
+                : client.put(_u('ads/$id'), headers: _change, body: jsonEncode(ad)),
+            wait: const Duration(seconds: 40),
+          )
+          as Map<String, dynamic>;
+  Future<Map<String, dynamic>> recheckAd(int id) async =>
+      await _send(client.post(_u('ads/$id/recheck'), headers: _change), wait: const Duration(seconds: 40))
+          as Map<String, dynamic>;
+  Future<void> deleteAd(int id) => _send(client.delete(_u('ads/$id'), headers: _change));
+  /// The ad's picture (same server).
+  Uri adImageUrl(String path) => base.resolve(path);
+
+  // ---- app control (admin+, A10) ----
+  Future<Map<String, dynamic>> appControl() async => await _get('app-control') as Map<String, dynamic>;
+  Future<Map<String, dynamic>> saveAppControl(Map<String, dynamic> data) async =>
+      await _send(client.put(_u('app-control'), headers: _change, body: jsonEncode(data))) as Map<String, dynamic>;
 
   // ---- audit log (admin+) ----
   Future<PageOf<Map<String, dynamic>>> audit({int page = 1}) async {

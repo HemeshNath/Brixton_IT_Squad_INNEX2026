@@ -62,5 +62,4 @@ def build_context(source: str, masked_text: str, links: list[LinkResult]) -> dic
         "content": masked_text,
         "url": " ".join(mask_pii(l.url) for l in links) if links else NO_URL,
         "ip_reputation": _per_link(links, _ip_reputation) if links else NO_IP,
-        "domain_information": _per_link(links, _domain_information) if links else NO_DOMAIN,
     }

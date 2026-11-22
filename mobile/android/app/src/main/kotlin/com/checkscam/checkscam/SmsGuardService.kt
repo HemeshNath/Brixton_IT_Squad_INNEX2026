@@ -58,7 +58,7 @@ class SmsGuardService : NotificationListenerService() {
         // Sender trust: count every new message from this sender (skipped ones too), on the phone only.
         val facts = SenderTrust.facts(this, sbn.packageName, msg.sender)
 
-        if (LocalFilter.shouldSkip(msg)) {
+        if (LocalFilter.shouldSkip(msg, cfg.syncedTrustedSenders)) {
             remember(dedupeKey, hidden = false)
             return
         }

@@ -34,9 +34,10 @@ const _classes = [
 const _serviceName = {
   'server': 'Server',
   'mira': 'MIRA model',
+  'trained_model': 'Trained model',
   'database': 'Database (Supabase)',
   'otx': 'AlienVault OTX',
-  'whois': 'WHOIS / domain age',
+  'whois': 'WHOIS (Domain Information)',
 };
 
 String _ms(Object? v) {
@@ -136,7 +137,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             hint: '90 % of checks were faster than this',
           ),
           _Tile(
-            'Over 5 s',
+            'Over ${today['slow_after_s'] ?? 60} s',
             '${today['slow_checks']}',
             Icons.warning_amber_rounded,
             alert: (today['slow_checks'] as num) > 0,

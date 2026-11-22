@@ -30,6 +30,11 @@ class Settings(BaseSettings):
 
     # MIRA v1 decision model (Hugging Face, Apache-2.0). Loaded in the background at server start.
     mira_enabled: bool = True
+    # Old MIRA (the long prompt, 30-70 s per check) is replaced by the owner's trained model. Off: it is not even
+    # loaded. On (USE_ORIGINAL_MIRA=true in .env): it decides when the trained model is missing / answers the questions.
+    use_original_mira: bool = False
+    # Answer the phone first and save the check row right after (history / dashboard rows appear ~1 s later)
+    save_checks_in_background: bool = True
     mira_model_id: str = "sagea-ai/Mira-v1"
     mira_revision: str = "610544ecbcf6e7c0103c9b75543dcaab7ec0739d"  # pinned: the version we tested
     mira_timeout_seconds: float = 75.0  # B6: MIRA with the owner's prompt takes 26-55 s on the laptop CPU
@@ -52,7 +57,7 @@ class Settings(BaseSettings):
     whois_api_key: str = ""  # WhoisXML API key (optional); without it free RDAP/WHOIS is used
 
     # Time budget per check (B6): the phone waits at most 90 s. Links get this long, then MIRA mira_timeout_seconds.
-    link_checks_timeout_seconds: float = 6.0  # B3: OTX (4 parts) + full WHOIS; slow parts keep filling the cache
+    link_checks_timeout_seconds: float = 2.0  # one OTX call per link (~0.6-1.2 s); WHOIS no longer used  # B3: OTX (4 parts) + full WHOIS; slow parts keep filling the cache
 
     # Web admin panel (Phase 10A): ID + password sign-in, cookie session.
     admin_idle_minutes: int = 30  # signed out after this long without activity
@@ -62,6 +67,9 @@ class Settings(BaseSettings):
     secrets_key: str = ""  # encrypts API keys saved in the admin panel; empty = backend/.secret_key file
     secret_key_file: str = ""  # where that file is (empty = backend/.secret_key); tests use a temp file
     admin_web_dir: Path = Field(default=BACKEND_DIR.parent / "admin_web" / "build" / "web")  # built Flutter Web app
+    # The owner's trained MIRA (fine-tuned in Colab); kept outside backend/ so it is never copied to GitHub
+    classifier_dir: Path = Field(default=BACKEND_DIR.parent / "models" / "checkscam-mira-ft")
+    classifier_timeout_seconds: float = 15.0
 
     rate_limit: str = "60/minute"
     check_timeout_seconds: float = 6.0

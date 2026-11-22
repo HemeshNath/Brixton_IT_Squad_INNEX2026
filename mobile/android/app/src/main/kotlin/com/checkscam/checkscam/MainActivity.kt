@@ -82,6 +82,20 @@ class MainActivity : FlutterActivity() {
                     }
                     result.success(null)
                 }
+                // Ads (A9) and "update the app" (A10): open a web link in the phone's browser
+                "openUrl" -> {
+                    val url = call.argument<String>("url") ?: ""
+                    val ok = url.startsWith("https://") || url.startsWith("http://")
+                    if (ok) {
+                        try {
+                            startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                        } catch (e: Exception) {
+                            result.success(false)
+                            return@setMethodCallHandler
+                        }
+                    }
+                    result.success(ok)
+                }
                 "openBatterySettings" -> {
                     startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
                     result.success(null)

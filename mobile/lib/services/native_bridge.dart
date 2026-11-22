@@ -36,6 +36,15 @@ class NativeBridge {
   static Future<void> requestNotificationPermission() => _ch.invokeMethod('requestNotificationPermission');
   static Future<void> openBatterySettings() => _ch.invokeMethod('openBatterySettings');
 
+  /// Opens a web link in the phone's browser (ads, "update the app"). False if no browser could open it.
+  static Future<bool> openUrl(String url) async {
+    try {
+      return await _ch.invokeMethod<bool>('openUrl', {'url': url}) ?? false;
+    } on MissingPluginException {
+      return false; // not on Android (tests)
+    }
+  }
+
   /// Sender trust: contacts permission (contacts are checked on the phone only and never sent anywhere).
   static Future<bool> hasContactsPermission() async => await _ch.invokeMethod<bool>('hasContactsPermission') ?? false;
   static Future<void> requestContactsPermission() => _ch.invokeMethod('requestContactsPermission');

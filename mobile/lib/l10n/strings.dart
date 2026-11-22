@@ -63,6 +63,13 @@ class S {
           'OTP र बैंकका सन्देशहरू तपाईंकै फोनमा रहन्छन्।');
   String get allowAccess => _t('Allow notification access', 'सूचना पढ्ने अनुमति दिनुहोस्');
   String get allowNotifications => _t('Allow CheckScam notifications', 'CheckScam का सूचनाहरूलाई अनुमति दिनुहोस्');
+  // ---- app control (A10) and ads (A9) ----
+  String get updateTitle => _t('Please update CheckScam', 'कृपया CheckScam अपडेट गर्नुहोस्');
+  String updateText(String min) => _t('This version is too old. Install version $min or newer to keep checking messages.',
+      'यो संस्करण धेरै पुरानो भयो। सन्देश जाँच जारी राख्न संस्करण $min वा नयाँ राख्नुहोस्।');
+  String get updateButton => _t('Get the update', 'अपडेट लिनुहोस्');
+  String get adLabel => _t('Ad', 'विज्ञापन');
+  String get dismiss => _t('Close', 'बन्द गर्नुहोस्');
   String get allowContacts => _t('Allow contacts (trust people you know)', 'सम्पर्क सूचीलाई अनुमति दिनुहोस् (चिनेका मान्छेलाई भरोसा)');
   String get allowContactsText => _t('Messages from saved contacts get more trust. Your contacts never leave your phone.',
       'सम्पर्क सूचीमा भएका मान्छेका सन्देशलाई बढी भरोसा गरिन्छ। तपाईंको सम्पर्क सूची फोनबाहिर कहिल्यै जाँदैन।');
@@ -116,7 +123,7 @@ class S {
         _ => verdictTitle(level),
       };
 
-  String get checkingTakesTime => _t('Checking… this can take up to a minute.', 'जाँच हुँदैछ… एक मिनेटसम्म लाग्न सक्छ।');
+  String get checkingTakesTime => _t('Checking… a few seconds.', 'जाँच हुँदैछ… केही सेकेन्ड।');
 
   String verdictShort(String verdict) => switch (verdict) {
         'dangerous' => _t('dangerous', 'खतरनाक'),

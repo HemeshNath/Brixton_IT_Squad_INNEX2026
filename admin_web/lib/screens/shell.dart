@@ -6,6 +6,8 @@ import 'package:flutter/material.dart';
 import '../api.dart';
 import '../theme/app_theme.dart';
 import 'accounts_screen.dart';
+import 'ads_screen.dart';
+import 'app_control_screen.dart';
 import 'audit_screen.dart';
 import 'dashboard_screen.dart';
 import 'data_sets_screen.dart';
@@ -13,6 +15,7 @@ import 'keys_model_screen.dart';
 import 'password_screen.dart';
 import 'settings_screen.dart';
 import 'test_lab_screen.dart';
+import 'trends_screen.dart';
 import 'users_screen.dart';
 
 class Section {
@@ -65,22 +68,19 @@ const sections = [
     'Scam trends',
     Icons.trending_up,
     'reviewer',
-    'Top scam types, most-reported domains and newest scam domains this week and month.',
-    step: 'A8',
+    'Risk classes per day, most-seen and newest risky domains, sources and the most common warnings.',
   ),
   Section(
     'Ads',
     Icons.campaign_outlined,
     'admin',
     'The home-screen banner in the app: create, check the link, schedule, switch on/off, views and clicks.',
-    step: 'A9',
   ),
   Section(
     'App control',
     Icons.phone_android,
     'admin',
-    'Minimum app version ("please update") and the in-app notice.',
-    step: 'A10',
+    'Minimum app version ("please update"), the in-app notice and the chat-apps switch.',
   ),
   Section('Audit log', Icons.receipt_long_outlined, 'admin', 'Every admin action: who, what, when.'),
   Section(
@@ -134,6 +134,9 @@ class _AdminShellState extends State<AdminShell> {
     'API keys & AI model' => KeysModelScreen(api: widget.api, onError: _onError),
     'Data sets' => DataSetsScreen(api: widget.api, me: widget.me, onError: _onError),
     'Test lab' => TestLabScreen(api: widget.api, onError: _onError),
+    'Scam trends' => TrendsScreen(api: widget.api, onError: _onError),
+    'Ads' => AdsScreen(api: widget.api, onError: _onError),
+    'App control' => AppControlScreen(api: widget.api, onError: _onError),
     'Audit log' => AuditScreen(api: widget.api, onError: _onError),
     'Admin accounts' => AccountsScreen(api: widget.api, me: widget.me, onError: _onError),
     'My password' => PasswordScreen(api: widget.api, onError: _onError),

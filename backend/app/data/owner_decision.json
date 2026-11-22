@@ -1,22 +1,95 @@
 {
   "version": "owner-v1",
-  "_note": "How MIRA's answers to the owner's prompt (mira_prompt_owner.txt) become Probability and Class. The question texts themselves are read from the 'Questions:' part of mira_prompt_owner.txt; here only what each answer means.",
+  "_note": "How the owner's five questions and five risk classes are used. The question texts are the owner's own wording (they used to sit in the long prompt, which is now only the four Context lines).",
   "class_question": "Which class fits this message?",
   "question_format": "Answer question {n}: {text}",
-  "answers": ["Yes", "No"],
+  "answers": [
+    "Yes",
+    "No"
+  ],
   "classes": [
-    {"id": "low", "option": "LOW RISK", "label": "LOW RISK", "from": 0, "to": 20, "anchor": 0},
-    {"id": "suspicious", "option": "SUSPICIOUS", "label": "SUSPICIOUS", "from": 21, "to": 40, "anchor": 30},
-    {"id": "high", "option": "HIGH RISK", "label": "HIGH RISK", "from": 41, "to": 60, "anchor": 50},
-    {"id": "critical", "option": "CRITICAL RISK", "label": "CRITICAL RISK", "from": 61, "to": 80, "anchor": 70},
-    {"id": "very_harmful", "option": "very harful", "label": "VERY HARMFUL", "from": 81, "to": 100, "anchor": 100}
+    {
+      "id": "low",
+      "option": "LOW RISK",
+      "label": "LOW RISK",
+      "from": 0,
+      "to": 20,
+      "anchor": 0
+    },
+    {
+      "id": "suspicious",
+      "option": "SUSPICIOUS",
+      "label": "SUSPICIOUS",
+      "from": 21,
+      "to": 40,
+      "anchor": 30
+    },
+    {
+      "id": "high",
+      "option": "HIGH RISK",
+      "label": "HIGH RISK",
+      "from": 41,
+      "to": 60,
+      "anchor": 50
+    },
+    {
+      "id": "critical",
+      "option": "CRITICAL RISK",
+      "label": "CRITICAL RISK",
+      "from": 61,
+      "to": 80,
+      "anchor": 70
+    },
+    {
+      "id": "very_harmful",
+      "option": "very harful",
+      "label": "VERY HARMFUL",
+      "from": 81,
+      "to": 100,
+      "anchor": 100
+    }
   ],
   "questions": {
-    "1": {"id": "asks_credentials", "code": "ASKS_CREDENTIALS", "warning_when": "Yes", "needs_link": false, "reason": "asks for OTP, password or bank details"},
-    "2": {"id": "offers_prize", "code": "OFFERS_PRIZE", "warning_when": "Yes", "needs_link": false, "reason": "offers a prize, offer or lottery"},
-    "3": {"id": "good_ip_reputation", "code": "BAD_IP_REPUTATION", "warning_when": "No", "needs_link": true, "reason": "link has a bad IP reputation"},
-    "4": {"id": "good_domain", "code": "BAD_DOMAIN", "warning_when": "No", "needs_link": true, "reason": "link has bad domain information"},
-    "5": {"id": "urgency", "code": "URGENCY", "warning_when": "Yes", "needs_link": false, "reason": "shows urgency"}
+    "1": {
+      "id": "asks_credentials",
+      "code": "ASKS_CREDENTIALS",
+      "warning_when": "Yes",
+      "needs_link": false,
+      "reason": "asks for OTP, password or bank details",
+      "text": "Does this SMS ask for any OTP, Password or personal and bank related credecials"
+    },
+    "2": {
+      "id": "offers_prize",
+      "code": "OFFERS_PRIZE",
+      "warning_when": "Yes",
+      "needs_link": false,
+      "reason": "offers a prize, offer or lottery",
+      "text": "Does this SMS offering Prize, Offer, Lotery"
+    },
+    "3": {
+      "id": "good_ip_reputation",
+      "code": "BAD_IP_REPUTATION",
+      "warning_when": "No",
+      "needs_link": true,
+      "reason": "link has a bad IP reputation",
+      "text": "Does this SMS IP have good Reputation"
+    },
+    "4": {
+      "id": "good_domain",
+      "code": "BAD_DOMAIN",
+      "warning_when": "No",
+      "needs_link": true,
+      "reason": "link has bad domain information",
+      "text": "Does this SMS have good domain information (bad like: registered under 15 days, does this domain is registered by the non-nepalise citizen"
+    },
+    "5": {
+      "id": "urgency",
+      "code": "URGENCY",
+      "warning_when": "Yes",
+      "needs_link": false,
+      "reason": "shows urgency",
+      "text": "Does this SMS have Urgency"
+    }
   },
   "warning_from": 0.5,
   "no_warning_reason": "no warning signs found"

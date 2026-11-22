@@ -15,8 +15,7 @@ class NotificationTexts(language: String) {
         "CheckScam ले यो सन्देश जाँच्न सकेन (जडान छैन)।",
     )
 
-    val checkingText get() = t("CheckScam is checking this message… (up to a minute)",
-        "CheckScam ले यो सन्देश जाँच्दैछ… (एक मिनेटसम्म)")
+    val checkingText get() = t("CheckScam is checking this message…", "CheckScam ले यो सन्देश जाँच्दैछ…")
 
     fun checkingTitle(from: String) = t("🔎 Checking · $from", "🔎 जाँच हुँदैछ · $from")
 

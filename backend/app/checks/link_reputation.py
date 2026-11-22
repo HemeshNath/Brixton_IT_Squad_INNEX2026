@@ -119,6 +119,46 @@ def _check_age(link: LinkResult, ages: DomainAgeClient) -> set[str]:
     return set()
 
 
+def _otx_reputation(link: LinkResult, otx: OtxClient) -> set[str]:
+    """URL reputation from AlienVault OTX in ONE call: the threat reports ("pulses") of the link's domain (or of the IP
+    for links without a name). Fast message checks use only this - no DNS, server-IP, passive-DNS or WHOIS lookups."""
+    try:
+        info = otx.ip(link.domain) if _is_ip(link.domain) else otx.domain(link.domain)
+    except OtxUnavailable as exc:
+        log.info("OTX skipped: %s", exc.reason)
+        return {"otx"}
+    link.otx_reports = info.reported
+    link.otx_counts = {"pulses": info.pulse_count, "whitelisted": info.whitelisted}
+    link.otx_text = f"{info.pulse_count} Pulses" + (" (whitelisted by OTX as a known safe site)" if info.whitelisted else "")
+    points = 0 if link.trusted else otx_points(info.reported)
+    if points:
+        link.reasons.append(Reason(
+            "OTX_REPORTED", f"Link's domain has {info.reported} threat report(s) in AlienVault OTX", points))
+    return set()
+
+
+def check_otx_only(links: list[LinkResult], otx: OtxClient | None, total_timeout: float = 2.0) -> list[str]:
+    """Every link -> one OTX call, all at the same time, at most `total_timeout` seconds. A slow answer keeps running
+    and fills the cache for next time. Returns ["otx"] if any link got no answer."""
+    if not links:
+        return []
+    if otx is None:
+        return ["otx"]
+    jobs = [_pool.submit(_otx_reputation, link, otx) for link in links]
+    done, not_done = wait(jobs, timeout=total_timeout)
+    skipped: set[str] = set()
+    for f in done:
+        try:
+            skipped |= f.result()
+        except Exception:  # never let one broken link break the whole check
+            log.exception("OTX link check failed")
+            skipped.add("otx")
+    if not_done:
+        log.warning("OTX check timed out")
+        skipped.add("otx")
+    return sorted(skipped)
+
+
 def check_links(
     links: list[LinkResult],
     otx: OtxClient | None,

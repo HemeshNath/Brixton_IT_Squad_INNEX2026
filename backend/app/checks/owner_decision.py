@@ -73,8 +73,10 @@ def prompt_questions(template_text: str) -> dict[int, str]:
 @lru_cache(maxsize=1)
 def config() -> OwnerConfig:
     raw = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-    texts = prompt_questions(TEMPLATE_PATH.read_text(encoding="utf-8"))
     meta = raw["questions"]
+    # question texts: from owner_decision.json, or (older layout) from the "Questions:" part of the prompt template
+    texts = {int(n): q["text"] for n, q in meta.items() if q.get("text")} or \
+        prompt_questions(TEMPLATE_PATH.read_text(encoding="utf-8"))
     if set(texts) != {int(n) for n in meta}:
         raise ValueError(f"questions in mira_prompt_owner.txt {sorted(texts)} do not match owner_decision.json "
                          f"{sorted(int(n) for n in meta)}")

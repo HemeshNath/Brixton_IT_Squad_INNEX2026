@@ -194,6 +194,41 @@ class ApiKey(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
+class Ad(Base):
+    """A home-screen banner ad in the phone app (Phase 10A step A9). It can only be switched on when its link passed
+    the safety check (OTX, WHOIS domain age, block list); it shows between starts_at and ends_at."""
+
+    __tablename__ = "ads"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    title: Mapped[str] = mapped_column(String(80))
+    body: Mapped[str] = mapped_column(String(200), default="")
+    link: Mapped[str] = mapped_column(String(500))
+    language: Mapped[str] = mapped_column(String(8), default="all")  # en | ne | all
+    image: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)  # PNG / JPEG, at most 500 KB
+    image_type: Mapped[str] = mapped_column(String(32), default="")
+    starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    active: Mapped[bool] = mapped_column(default=False)
+    link_check: Mapped[dict] = mapped_column(JSON, default=dict)  # {"ok", "problems", "notes", "checked_at"}
+    views: Mapped[int] = mapped_column(Integer, default=0)
+    clicks: Mapped[int] = mapped_column(Integer, default=0)
+    created_by: Mapped[str] = mapped_column(String(64), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class AppConfig(Base):
+    """App control (Phase 10A step A10): one row per key, e.g. "app" = minimum version, notice, chat-apps switch."""
+
+    __tablename__ = "app_config"
+
+    key: Mapped[str] = mapped_column(String(32), primary_key=True)
+    data: Mapped[dict] = mapped_column(JSON, default=dict)
+    updated_by: Mapped[str] = mapped_column(String(64), default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
 class ModelTest(Base):
     """One test run of an AI model version on the data set (Phase 10A step A5)."""
 

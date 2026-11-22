@@ -21,6 +21,9 @@ from sqlalchemy.orm import Session
 from ...admin_auth import require_role
 from ...db import AdminUser, Check, DomainCache, Feedback, KnownScam, OtxCache, Profile, get_db
 from ...checks.owner_decision import config as owner_config
+from ...checks.pipeline import TRAINED_DEFAULTS
+
+SLOW_CHECK_SECONDS = 60  # a check slower than this counts as slow on the dashboard
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 NEPAL = timezone(timedelta(hours=5, minutes=45))
@@ -30,6 +33,12 @@ def nepal_day_start(now: datetime | None = None, days_ago: int = 0) -> datetime:
     """Midnight in Nepal (as an aware datetime), `days_ago` days back."""
     local = (now or datetime.now(timezone.utc)).astimezone(NEPAL)
     return local.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=days_ago)
+
+
+def utc(dt: datetime) -> datetime:
+    """The same moment in UTC - for database comparisons. Times are stored in UTC; SQLite compares them as text, so
+    a Nepal-time bound (+05:45) would put checks made between 00:00 and 05:45 Nepal time on the wrong day."""
+    return dt.astimezone(timezone.utc)
 
 
 def _nepal_date(dt: datetime) -> str:
@@ -55,7 +64,7 @@ def dashboard(request: Request, db: Session = Depends(get_db), _: AdminUser = De
     checkers = app.state.checkers
     recorder = app.state.errors
     now = datetime.now(timezone.utc)
-    today = nepal_day_start(now)
+    today = utc(nepal_day_start(now))
 
     # ---- services ----
     services: dict[str, dict] = {}
@@ -66,8 +75,20 @@ def dashboard(request: Request, db: Session = Depends(get_db), _: AdminUser = De
     services["mira"] = _service(mira_state.get(mira.status, "warning"),
                                 {"ready": f"Ready ({mira.version})", "loading": "Loading the model…",
                                  "not_started": "Not loaded yet", "failed": f"Failed: {mira.error or 'unknown'}",
-                                 "disabled": "Switched off"}.get(mira.status, mira.status),
+                                 "disabled": "Replaced by the trained model"}.get(mira.status, mira.status),
                                 load_seconds=mira.load_seconds)
+    clf = getattr(app.state, "classifier", None)
+    trained_on = {**TRAINED_DEFAULTS, **app.state.checkers.trained}["enabled"]
+    if clf is None or clf.status == "not_found":
+        services["trained_model"] = _service("off", "No trained model in the models folder")
+    elif not trained_on:
+        services["trained_model"] = _service("off", f"Switched off in Settings ({clf.version})")
+    else:
+        services["trained_model"] = _service(
+            mira_state.get(clf.status, "warning"),
+            {"ready": f"Ready ({clf.version})", "loading": "Loading the model…", "not_started": "Not loaded yet",
+             "failed": f"Failed: {clf.error or 'unknown'}"}.get(clf.status, clf.status),
+            load_seconds=clf.load_seconds)
     t = time.perf_counter()
     try:
         db.execute(text("SELECT 1"))
@@ -88,7 +109,8 @@ def dashboard(request: Request, db: Session = Depends(get_db), _: AdminUser = De
                                    f"{otx_today} of {settings.otx_daily_limit} lookups used today (UTC)")
     domains = db.scalar(select(func.count()).select_from(DomainCache)) or 0
     services["whois"] = (_service("off", "Switched off") if checkers.ages is None
-                         else _service("ok", f"{domains} domains in the cache", cached=domains))
+                         else _service("ok", f"Only for ad links (not for messages) · {domains} domains cached",
+                                       cached=domains))
 
     # ---- checks today ----
     rows = db.execute(select(Check.id, Check.user_id, Check.verdict, Check.score, Check.timings_ms, Check.checks_skipped,
@@ -108,12 +130,14 @@ def dashboard(request: Request, db: Session = Depends(get_db), _: AdminUser = De
         "avg_ms": round(sum(times) / len(times)) if times else None,
         "p90_ms": _p90(times),
         "skipped": dict(skipped),
-        "slow_checks": sum(1 for x in times if x > 5000),
+        # B8: with the owner's prompt a check takes ~30-70 s, so "slow" now means over SLOW_CHECK_SECONDS
+        "slow_checks": sum(1 for x in times if x > SLOW_CHECK_SECONDS * 1000),
+        "slow_after_s": SLOW_CHECK_SECONDS,
     }
 
     # ---- last 7 days ----
     week_start = nepal_day_start(now, 6)
-    week = Counter(_nepal_date(c) for c in db.scalars(select(Check.created_at).where(Check.created_at >= week_start)))
+    week = Counter(_nepal_date(c) for c in db.scalars(select(Check.created_at).where(Check.created_at >= utc(week_start))))
     days = [(week_start + timedelta(days=i)).date().isoformat() for i in range(7)]
 
     return {
