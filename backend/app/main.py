@@ -3,35 +3,39 @@
 Run (from backend/):  ..\\.venv\\Scripts\\uvicorn app.main:app --host 0.0.0.0 --port 8000
 API docs:             http://localhost:8000/docs
 """
-import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 
 from .api.v1 import router as v1_router
 from .config import Settings, get_settings
 from .checks.domain_age import DomainAgeClient
-from .checks.mira import MiraModel, MiraService
+from .checks.mira import MiraService
 from .checks.otx import OtxClient
 from .checks.known_scams import KnownScamMemory
 from .checks.pipeline import Checkers
 from .db import make_engine, make_sessionmaker
 from .logging_setup import setup_logging
+from .monitoring import ErrorMiddleware, ErrorRecorder
+from . import ai_models, api_keys, data_lists, live_settings
 
 setup_logging()  # every log line is passed through mask_pii (no personal data in logs)
 
 
-def make_mira_service(settings: Settings) -> MiraService:
-    cache_dir = os.path.join(settings.hf_home, "hub") if settings.hf_home else None
-
-    def loader() -> MiraModel:
-        return MiraModel.load(settings.mira_model_id, settings.mira_revision, cache_dir=cache_dir,
-                              local_only=settings.mira_local_only, not_sure_below=settings.mira_not_sure_below)
-
-    return MiraService(loader, timeout=settings.mira_timeout_seconds, enabled=settings.mira_enabled)
+def make_mira_service(settings: Settings, sessions=None) -> MiraService:
+    """MIRA for the version chosen in the admin panel (Phase 10A), else the .env model."""
+    version = None
+    if sessions is not None:
+        try:
+            with sessions() as db:
+                version = ai_models.chosen_version(db, settings)
+        except Exception:  # noqa: BLE001 - table not migrated yet: use .env
+            version = None
+    return ai_models.make_service(settings, version or ai_models.default_version(settings))
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -49,20 +53,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lifespan=lifespan,
     )
     app.state.settings = settings
+    app.state.errors = ErrorRecorder()  # Phase 10A: server errors for the admin dashboard
+    app.add_middleware(ErrorMiddleware, recorder=app.state.errors)
     app.state.engine = make_engine(settings.database_url)
     app.state.sessionmaker = make_sessionmaker(app.state.engine)
-    app.state.mira = make_mira_service(settings)  # Phase 6: MIRA v1 decision model
+    app.state.mira = make_mira_service(settings, app.state.sessionmaker)  # Phase 6 / 10A: MIRA decision model
     sessions = app.state.sessionmaker
     app.state.checkers = Checkers(  # Phase 8: everything one check may use (None = that part is skipped)
         otx=OtxClient(settings.otx_api_key, sessions, timeout=settings.otx_timeout_seconds,
-                      daily_limit=settings.otx_daily_limit, cache_hours=settings.otx_cache_hours)
+                      daily_limit=settings.otx_daily_limit, cache_hours=settings.otx_cache_hours,
+                      save_in_background=True)
         if settings.otx_api_key else None,
-        ages=DomainAgeClient(sessions, timeout=settings.whois_timeout_seconds, cache_days=settings.domain_cache_days)
+        ages=DomainAgeClient(sessions, timeout=settings.whois_timeout_seconds, cache_days=settings.domain_cache_days,
+                             whois_api_key=settings.whois_api_key, save_in_background=True)
         if settings.whois_enabled else None,
         mira=app.state.mira,
         known=KnownScamMemory(sessions),  # Phase 10: approved scams, matched by letter patterns
         link_timeout=settings.link_checks_timeout_seconds,
     )
+    live_settings.load_on_start(app)  # Phase 10A: admin panel settings (newest saved version)
+    api_keys.apply(app)  # Phase 10A: OTX / WHOIS keys saved in the admin panel
+    data_lists.apply(app)  # Phase 10A: official / trusted / blocked lists changed in the admin panel
 
     @app.exception_handler(RequestValidationError)
     async def bad_input(request: Request, exc: RequestValidationError):
@@ -80,6 +91,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
 
     app.include_router(v1_router, prefix="/api/v1")
+
+    # Web admin panel (Phase 10A): the built Flutter Web app, served at /admin when it has been built.
+    if (settings.admin_web_dir / "index.html").exists():
+        @app.get("/admin", include_in_schema=False)
+        def admin_root():
+            return RedirectResponse("/admin/")
+
+        app.mount("/admin", StaticFiles(directory=settings.admin_web_dir, html=True), name="admin")
     return app
 
 

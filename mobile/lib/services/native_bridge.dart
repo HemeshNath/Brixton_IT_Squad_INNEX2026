@@ -36,6 +36,10 @@ class NativeBridge {
   static Future<void> requestNotificationPermission() => _ch.invokeMethod('requestNotificationPermission');
   static Future<void> openBatterySettings() => _ch.invokeMethod('openBatterySettings');
 
+  /// Sender trust: contacts permission (contacts are checked on the phone only and never sent anywhere).
+  static Future<bool> hasContactsPermission() async => await _ch.invokeMethod<bool>('hasContactsPermission') ?? false;
+  static Future<void> requestContactsPermission() => _ch.invokeMethod('requestContactsPermission');
+
   /// Phone brand (Build.MANUFACTURER), e.g. "realme", for the battery guide. Empty when unknown.
   static Future<String> manufacturer() async {
     try {

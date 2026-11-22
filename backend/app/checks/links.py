@@ -39,6 +39,12 @@ class LinkResult:
     shared_hosting: bool = False  # server IP is a shared CDN/hosting network
     domain_age_days: int | None = None  # filled by the domain-age check (Phase 5); None = unknown
     registrar: str | None = None
+    blocked: bool = False  # on the admin panel block list (Phase 10A) - always Dangerous
+    # Replies kept for MIRA's prompt (backend flow B3); None = no reply (lookup failed, timed out or switched off)
+    otx_counts: dict | None = None  # {"pulses", "passive_dns", "urls", "files", "whitelisted"}
+    otx_text: str | None = None  # "0 Pulses 7 Passive DNS 0 URLS 0 Files"
+    whois: dict | None = None  # WhoisDetails.to_dict()
+    whois_text: str | None = None  # "Domain Information Domain: ... Registered On: ..." (full WHOIS text)
 
     @property
     def points(self) -> int:

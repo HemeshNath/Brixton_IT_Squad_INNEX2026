@@ -42,7 +42,11 @@ class ApiService {
     this.authToken = '',
     this.tokenProvider,
     this.timeout = const Duration(seconds: 10),
+    this.checkTimeout = const Duration(seconds: 95),
   });
+
+  /// A message check waits much longer (B7): MIRA with the owner's prompt takes ~30-70 s; the server stops at 90 s.
+  final Duration checkTimeout;
 
   /// Sign-in order: Google (fresh Firebase token) -> fixed token -> development name.
   Future<Map<String, String>> _headers() async {
@@ -62,11 +66,12 @@ class ApiService {
     };
   }
 
-  Future<dynamic> _send(Future<http.Response> Function(Map<String, String> headers) call, {bool auth = true}) async {
+  Future<dynamic> _send(Future<http.Response> Function(Map<String, String> headers) call,
+      {bool auth = true, Duration? wait}) async {
     final headers = auth ? await _headers() : const <String, String>{};
     final http.Response r;
     try {
-      r = await call(headers).timeout(timeout);
+      r = await call(headers).timeout(wait ?? timeout);
     } on TimeoutException {
       throw ApiException('The server is taking too long. Please try again.', null, 'timeout');
     } on SocketException {
@@ -88,6 +93,10 @@ class ApiService {
         throw ApiException(detail is List ? '${detail.first}' : '${detail ?? 'Invalid input.'}', 400, 'invalid');
       case 401:
         throw ApiException('Please sign in again.', 401, 'signin');
+      case 403:
+        final detail = body is Map ? '${body['detail'] ?? ''}' : '';
+        if (detail.toLowerCase().contains('blocked')) throw ApiException(detail, 403, 'blocked');
+        throw ApiException(detail.isEmpty ? 'Not allowed.' : detail, 403, 'forbidden');
       case 404:
         throw ApiException('Not found.', 404, 'not_found');
       case 429:
@@ -109,7 +118,7 @@ class ApiService {
 
   Future<CheckResult> checkMessage(String text, {String sender = ''}) async {
     final body = await _send((h) => client.post(_u('/check/sms'),
-        headers: h, body: jsonEncode({'text': text, 'sender': sender, 'source': 'manual'})));
+        headers: h, body: jsonEncode({'text': text, 'sender': sender, 'source': 'manual'})), wait: checkTimeout);
     return CheckResult.fromJson(Map<String, dynamic>.from(body as Map));
   }
 

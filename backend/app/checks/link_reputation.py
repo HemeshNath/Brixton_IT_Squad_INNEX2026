@@ -5,12 +5,15 @@ RDAP/WHOIS -> domain age                                                (Phase 5
 Adds its findings to each LinkResult (ip, country, otx_reports and extra reasons), so the scorer
 treats them like the other link rules. All links are checked in parallel with one overall time
 limit; anything slow or failing is reported in `skipped` instead of breaking the check.
-Trusted domains (esewa.com.np, ...) are not looked up at all."""
+Backend flow B3: every link - official ones too - is sent to OTX (pulses, passive DNS, URLs, files) and
+WHOIS (full details) at the same time, and both replies are kept on the link (otx_text, whois_text) for
+MIRA's prompt. Official links get no risk points from these lookups."""
 from __future__ import annotations
 
 import ipaddress
 import logging
-from concurrent.futures import ThreadPoolExecutor, wait
+import time
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout, wait
 
 from .config_data import trusted
 from .dns_lookup import lookup
@@ -21,6 +24,7 @@ from .otx import OtxClient, OtxUnavailable, otx_points
 log = logging.getLogger("checkscam.reputation")
 
 _pool = ThreadPoolExecutor(max_workers=6, thread_name_prefix="linkrep")
+_side = ThreadPoolExecutor(max_workers=6, thread_name_prefix="linkrep-ip")  # the server-IP check, beside the counts
 
 
 def _is_ip(value: str) -> bool:
@@ -35,8 +39,14 @@ def shared_hosting_asns() -> set[str]:
     return {a.upper() for a in trusted().get("shared_hosting_asns", [])}
 
 
-def _check_one(link: LinkResult, otx: OtxClient | None, dns_timeout: float) -> set[str]:
-    """Checks one link in place. Returns the names of checks that had to be skipped."""
+def _left(deadline: float | None) -> float | None:
+    return None if deadline is None else max(0.05, deadline - time.monotonic())
+
+
+def _check_one(link: LinkResult, otx: OtxClient | None, dns_timeout: float, deadline: float | None = None) -> set[str]:
+    """Checks one link in place. Returns the names of checks that had to be skipped.
+    The server-IP check runs at the same time as the four OTX numbers of the domain; parts not back by
+    `deadline` are left out (their calls keep running and fill the cache for next time)."""
     skipped: set[str] = set()
     dns = lookup(link.host or link.domain, timeout=dns_timeout)
     if dns.error == "timeout":
@@ -48,24 +58,40 @@ def _check_one(link: LinkResult, otx: OtxClient | None, dns_timeout: float) -> s
     if otx is None:
         skipped.add("otx")
     else:
+        ip_link = _is_ip(link.domain)
+        server = _side.submit(otx.ip, ip) if ip and not ip_link else None
+        answered = False
         try:
-            if ip:
-                info = otx.ip(ip)
+            # B3: the four OTX numbers for MIRA's prompt (the domain, or the IP for links without a name)
+            counts = otx.counts("ip" if ip_link else "domain", link.domain, wait_seconds=_left(deadline))
+            link.otx_counts, link.otx_text = counts.to_dict(), counts.text
+            answered = True
+            if counts.pulses is not None and not counts.whitelisted:
+                reports = counts.pulses
+            if ip_link and ip:  # country / network of an IP link (already in the memory cache)
+                server_info = otx.ip(ip)
+                link.country = server_info.country
+        except OtxUnavailable as exc:
+            log.info("OTX skipped: %s", exc.reason)
+        if server is not None:
+            try:
+                info = server.result(timeout=_left(deadline))
+                answered = True
                 if info.asn in shared_hosting_asns():
                     # Shared CDN/hosting IP (Cloudflare, AWS...): its reports and country belong to
-                    # millions of other sites, so only the domain check below counts.
+                    # millions of other sites, so only the domain's reports count.
                     link.shared_hosting = True
                 else:
                     reports = max(reports, info.reported)
                     link.country = info.country
-            if link.domain and link.domain != ip:
-                reports = max(reports, otx.domain(link.domain).reported)
+            except (OtxUnavailable, FutureTimeout) as exc:
+                log.info("OTX server-IP check skipped: %s", getattr(exc, "reason", "timeout"))
+        if answered:
             link.otx_reports = reports
-        except OtxUnavailable as exc:
-            log.info("OTX skipped: %s", exc.reason)
+        else:
             skipped.add("otx")
 
-    points = otx_points(reports)
+    points = 0 if link.trusted else otx_points(reports)
     if points:
         link.reasons.append(Reason(
             "OTX_REPORTED", f"Link's server or domain has {reports} threat report(s) in AlienVault OTX", points))
@@ -82,8 +108,12 @@ def _check_age(link: LinkResult, ages: DomainAgeClient) -> set[str]:
         return {"whois"}
     link.domain_age_days = info.age_days()
     link.registrar = info.registrar
+    if info.details is not None:
+        link.whois, link.whois_text = info.details.to_dict(), info.text
+    else:
+        link.whois_text = f"Domain: {link.domain} No public WHOIS data"
     points, code = age_points(link.domain_age_days)
-    if code:
+    if code and not link.trusted:
         days = link.domain_age_days
         link.reasons.append(Reason(code, f"Link's domain was registered only {days} day{'s' if days != 1 else ''} ago", points))
     return set()
@@ -96,12 +126,13 @@ def check_links(
     total_timeout: float = 6.0,
     ages: DomainAgeClient | None = None,
 ) -> list[str]:
-    """Runs the reputation checks (OTX, domain age) for all untrusted links in parallel.
+    """Runs the reputation checks (OTX, WHOIS / domain age) for all links in parallel.
     Returns the sorted list of skipped checks ("dns", "otx", "whois"), [] when everything ran."""
-    targets = [l for l in links if not l.trusted]
+    targets = list(links)
     if not targets:
         return []
-    jobs = {_pool.submit(_check_one, link, otx, dns_timeout): "otx" for link in targets}
+    deadline = time.monotonic() + total_timeout - 0.15  # OTX parts stop waiting just before the time limit
+    jobs = {_pool.submit(_check_one, link, otx, dns_timeout, deadline): "otx" for link in targets}
     if ages is not None:
         for link in targets:
             if link.domain and not _is_ip(link.domain):  # IP links have no domain to look up

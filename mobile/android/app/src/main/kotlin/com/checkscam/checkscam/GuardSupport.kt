@@ -8,7 +8,6 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import android.graphics.Color
 import android.os.Bundle
 import android.util.Log
 import com.google.android.gms.tasks.Tasks
@@ -29,7 +28,32 @@ data class CheckResult(
     val topReason: String?,
     val raw: String = "",
     val topCode: String? = null, // reason code of topReason, used for the Nepali text
-)
+    val riskClass: String? = null, // owner's class (B7): low | suspicious | high | critical | very_harmful
+) {
+    /** What the notification's title and colour follow: the risk class when there is one, else the verdict. */
+    val level: String get() = riskClass ?: verdict
+}
+
+/** The reason to show (B7): the first warning (owner's questions), else the reason with the most points. */
+fun pickTopReason(codes: List<String>, texts: List<String>, points: List<Int>): Pair<String?, String?> {
+    val firstWarning = codes.indices.firstOrNull {
+        !codes[it].startsWith("RISK_") && codes[it] != "NOT_CHECKED" && (points.getOrNull(it) ?: 0) >= 0
+    }  // a trust reason (negative points, e.g. saved contact) is never shown as the warning
+    val i = firstWarning ?: points.indices.maxByOrNull { points[it] } ?: return Pair(null, null)
+    return Pair(texts[i], codes[i])
+}
+
+/** Notification colour per owner risk class / verdict (same colours as the app). */
+fun levelColor(level: String?): Int = when (level) {
+    "very_harmful" -> 0xFFB71C1C.toInt()
+    "critical" -> 0xFFD84315.toInt()
+    "high" -> 0xFFEF6C00.toInt()
+    "suspicious" -> 0xFFF9A825.toInt()
+    "low" -> 0xFF2E7D32.toInt()
+    "dangerous" -> 0xFFC62828.toInt()
+    "safe" -> 0xFF2E7D32.toInt()
+    else -> 0xFF9E9E9E.toInt()
+}
 
 /** Settings written by the Flutter side through shared_preferences ("flutter." prefix). */
 data class GuardConfig(
@@ -132,7 +156,8 @@ object ApiClient {
         null
     }
 
-    fun checkSms(ctx: Context, cfg: GuardConfig, msg: IncomingMessage, sourceApp: String): CheckResult? {
+    fun checkSms(ctx: Context, cfg: GuardConfig, msg: IncomingMessage, sourceApp: String,
+                 facts: SenderFacts = SenderFacts(null, null)): CheckResult? {
         if (cfg.apiBaseUrl.isBlank()) return null
         // Sign-in order: Google (Firebase) -> token saved by Flutter -> development name.
         val token = firebaseToken(ctx) ?: cfg.authToken.ifBlank { null }
@@ -141,7 +166,7 @@ object ApiClient {
             conn = (URL(cfg.apiBaseUrl.trimEnd('/') + "/check/sms").openConnection() as HttpURLConnection).apply {
                 requestMethod = "POST"
                 connectTimeout = 3000
-                readTimeout = 8000 // the server check takes up to ~7 s (links 2 s + MIRA 5 s)
+                readTimeout = 95_000 // B7: MIRA with the owner's prompt takes ~30-70 s; the server stops at 90 s
                 doOutput = true
                 setRequestProperty("Content-Type", "application/json")
                 if (token != null) setRequestProperty("Authorization", "Bearer $token")
@@ -153,6 +178,9 @@ object ApiClient {
                 .put("sender", msg.sender)
                 .put("source_app", sourceApp)
                 .put("source", source)
+                // sender trust (only these two facts leave the phone; null = unknown)
+                .put("sender_in_contacts", facts.inContacts ?: JSONObject.NULL)
+                .put("sender_seen_before", facts.seenBefore ?: JSONObject.NULL)
             conn.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
             if (conn.responseCode != 200) {
                 Log.w(SmsGuardService.TAG, "API returned ${conn.responseCode}")
@@ -160,20 +188,19 @@ object ApiClient {
             }
             val json = JSONObject(conn.inputStream.bufferedReader(Charsets.UTF_8).readText())
             val reasons = json.optJSONArray("reasons")
-            var top: String? = null
-            var topCode: String? = null
+            val codes = mutableListOf<String>()
+            val texts = mutableListOf<String>()
+            val points = mutableListOf<Int>()
             if (reasons != null) {
-                var best = -1
                 for (i in 0 until reasons.length()) {
                     val r = reasons.getJSONObject(i)
-                    if (r.optInt("points") > best) {
-                        best = r.optInt("points"); top = r.optString("text"); topCode = r.optString("code")
-                    }
+                    codes.add(r.optString("code")); texts.add(r.optString("text")); points.add(r.optInt("points"))
                 }
             }
+            val (top, topCode) = pickTopReason(codes, texts, points)
             CheckResult(
                 json.optString("verdict", "unknown"), json.optInt("score"), json.optString("suggestion"), top,
-                json.toString(), topCode,
+                json.toString(), topCode, if (json.isNull("risk_class")) null else json.optString("risk_class"),
             )
         } catch (e: Exception) {
             Log.w(SmsGuardService.TAG, "Check failed: ${e.javaClass.simpleName}")
@@ -196,20 +223,33 @@ object ResultNotifier {
         )
     }
 
+    /** B7: shown at once while the server checks (~30-70 s), so the hidden message is still visible.
+     *  The result notification later replaces it (same id). */
+    fun showChecking(ctx: Context, msg: IncomingMessage, openOriginal: PendingIntent?, id: Int) {
+        val texts = NotificationTexts(GuardConfig.load(ctx).language)
+        ensureChannel(ctx, texts)
+        val from = msg.sender.ifBlank { texts.unknownSender }
+        val builder = Notification.Builder(ctx, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(texts.checkingTitle(from))
+            .setContentText(msg.text)
+            .setStyle(Notification.BigTextStyle().bigText(msg.text + "\n\n" + texts.checkingText))
+            .setColor(levelColor(null))
+            .setOnlyAlertOnce(true)
+            .setCategory(Notification.CATEGORY_MESSAGE)
+        openOriginal?.let { builder.setContentIntent(it) }
+        ctx.getSystemService(NotificationManager::class.java).notify(id, builder.build())
+    }
+
     fun show(ctx: Context, msg: IncomingMessage, result: CheckResult?, openOriginal: PendingIntent?, id: Int) {
         val texts = NotificationTexts(GuardConfig.load(ctx).language)
         ensureChannel(ctx, texts)
         val from = msg.sender.ifBlank { texts.unknownSender }
-        val title = texts.title(result?.verdict, from)
-        val color = when (result?.verdict) {
-            "dangerous" -> Color.rgb(198, 40, 40)
-            "suspicious" -> Color.rgb(239, 108, 0)
-            "safe" -> Color.rgb(46, 125, 50)
-            else -> Color.GRAY
-        }
+        val title = texts.title(result?.level, from)
+        val color = levelColor(result?.level)
         val details = buildString {
             append(msg.text)
-            if (result != null && result.verdict != "safe") {
+            if (result != null && result.level !in setOf("safe", "low")) {
                 append("\n\n")
                 texts.reason(result.topCode, result.topReason)?.let { append(texts.sentence(it)).append(" ") }
                 append(texts.suggestion(result.suggestion))
@@ -232,7 +272,7 @@ object ResultNotifier {
             ctx, id, appIntent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         // Tapping a safe message opens the SMS thread; a risky one opens CheckScam first.
-        val tap = if (result?.verdict == "safe" || result == null) openOriginal ?: openApp else openApp
+        val tap = if (result == null || result.level in setOf("safe", "low")) openOriginal ?: openApp else openApp
 
         val notification = Notification.Builder(ctx, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification) // white S silhouette (status bar icon)

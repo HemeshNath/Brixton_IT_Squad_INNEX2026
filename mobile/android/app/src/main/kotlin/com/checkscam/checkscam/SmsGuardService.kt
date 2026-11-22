@@ -55,6 +55,9 @@ class SmsGuardService : NotificationListenerService() {
             }
         }
 
+        // Sender trust: count every new message from this sender (skipped ones too), on the phone only.
+        val facts = SenderTrust.facts(this, sbn.packageName, msg.sender)
+
         if (LocalFilter.shouldSkip(msg)) {
             remember(dedupeKey, hidden = false)
             return
@@ -65,8 +68,9 @@ class SmsGuardService : NotificationListenerService() {
         remember(dedupeKey, hidden = true)
         val openOriginal = n.contentIntent
 
+        ResultNotifier.showChecking(this, msg, openOriginal, dedupeKey.hashCode())
         executor.execute {
-            val result = ApiClient.checkSms(this, cfg, msg, sbn.packageName)
+            val result = ApiClient.checkSms(this, cfg, msg, sbn.packageName, facts)
             ResultNotifier.show(this, msg, result, openOriginal, dedupeKey.hashCode())
         }
     }

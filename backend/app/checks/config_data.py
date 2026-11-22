@@ -25,9 +25,18 @@ def load_json(name: str) -> dict:
         raise RuntimeError(f"Data file {path} is not valid JSON: {exc}") from None
 
 
+_trusted_override: dict | None = None  # trusted.json + admin panel list changes (Phase 10A); None = the file
+
+
+def set_trusted_override(data: dict | None) -> None:
+    """Admin panel lists (official domains, trusted senders) replace those in trusted.json while the server runs."""
+    global _trusted_override
+    _trusted_override = data
+
+
 def trusted() -> dict:
     """trusted_domains, brand_keywords, trusted_senders, shorteners, suspicious_tlds, shared_hosting_asns."""
-    return load_json(TRUSTED_FILE)
+    return _trusted_override if _trusted_override is not None else load_json(TRUSTED_FILE)
 
 
 def reload() -> None:

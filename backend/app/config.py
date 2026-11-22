@@ -32,7 +32,7 @@ class Settings(BaseSettings):
     mira_enabled: bool = True
     mira_model_id: str = "sagea-ai/Mira-v1"
     mira_revision: str = "610544ecbcf6e7c0103c9b75543dcaab7ec0739d"  # pinned: the version we tested
-    mira_timeout_seconds: float = 5.0  # the phone waits up to 8 s for the whole check
+    mira_timeout_seconds: float = 75.0  # B6: MIRA with the owner's prompt takes 26-55 s on the laptop CPU
     mira_not_sure_below: float = 0.5  # top answer probability below this -> "not sure"
     mira_local_only: bool = True  # never download at start-up; model must already be in the cache
     hf_home: str = ""  # Hugging Face cache folder, e.g. D:\hf_cache (empty = HF_HOME env var / default)
@@ -49,9 +49,19 @@ class Settings(BaseSettings):
     whois_enabled: bool = True
     whois_timeout_seconds: float = 10.0
     domain_cache_days: int = 7
+    whois_api_key: str = ""  # WhoisXML API key (optional); without it free RDAP/WHOIS is used
 
-    # Time budget per check: the phone waits at most 8 s. Links get this long, then MIRA mira_timeout_seconds.
-    link_checks_timeout_seconds: float = 2.0
+    # Time budget per check (B6): the phone waits at most 90 s. Links get this long, then MIRA mira_timeout_seconds.
+    link_checks_timeout_seconds: float = 6.0  # B3: OTX (4 parts) + full WHOIS; slow parts keep filling the cache
+
+    # Web admin panel (Phase 10A): ID + password sign-in, cookie session.
+    admin_idle_minutes: int = 30  # signed out after this long without activity
+    admin_max_failed_logins: int = 5  # then the account is locked for admin_lock_minutes
+    admin_lock_minutes: int = 15
+    admin_cookie_secure: bool = True  # cookie only over HTTPS; set false only for local http testing
+    secrets_key: str = ""  # encrypts API keys saved in the admin panel; empty = backend/.secret_key file
+    secret_key_file: str = ""  # where that file is (empty = backend/.secret_key); tests use a temp file
+    admin_web_dir: Path = Field(default=BACKEND_DIR.parent / "admin_web" / "build" / "web")  # built Flutter Web app
 
     rate_limit: str = "60/minute"
     check_timeout_seconds: float = 6.0

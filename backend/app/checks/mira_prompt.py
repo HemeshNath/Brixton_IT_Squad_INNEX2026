@@ -159,6 +159,7 @@ class MiraResult:
     question_yes: dict[str, float] = field(default_factory=dict)  # question id -> P(yes)
     question_points: float = 0.0  # sum of weight_yes * P(yes)
     prompt_version: str = ""
+    option_probabilities: dict[str, float] = field(default_factory=dict)  # option id -> probability (test lab)
 
 
 def interpret(answers: list[MiraAnswer], cfg: PromptConfig | None = None) -> MiraResult:
@@ -186,4 +187,5 @@ def interpret(answers: list[MiraAnswer], cfg: PromptConfig | None = None) -> Mir
         question_yes=question_yes,
         question_points=round(points, 2),
         prompt_version=c.version,
+        option_probabilities={k: round(v, 4) for k, v in by_option.items()},
     )

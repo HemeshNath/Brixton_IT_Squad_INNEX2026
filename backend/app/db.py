@@ -10,7 +10,8 @@ from collections.abc import Iterator
 from datetime import datetime, timezone
 
 from fastapi import Request
-from sqlalchemy import JSON, DateTime, ForeignKey, Integer, LargeBinary, String, Text, create_engine, event
+from sqlalchemy import (JSON, DateTime, ForeignKey, Integer, LargeBinary, String, Text, UniqueConstraint, create_engine,
+                        event)
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship, sessionmaker
 
@@ -33,7 +34,9 @@ class Profile(Base):
     uid: Mapped[str] = mapped_column(String(128), primary_key=True)  # Firebase UID
     email: Mapped[str] = mapped_column(String(320), default="")
     plan: Mapped[str] = mapped_column(String(16), default="free")  # free | premium
-    is_admin: Mapped[bool] = mapped_column(default=False)
+    is_admin: Mapped[bool] = mapped_column(default=False)  # old Phase 10 flag, unused since the admin panel (10A)
+    blocked: Mapped[bool] = mapped_column(default=False)  # blocked users get 403 from every app endpoint (10A)
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)  # last app request
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     checks: Mapped[list[Check]] = relationship(back_populates="user", cascade="all, delete-orphan", passive_deletes=True)
@@ -120,8 +123,117 @@ class DomainCache(Base):
     registered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     registrar: Mapped[str | None] = mapped_column(String(200), nullable=True)
-    source: Mapped[str] = mapped_column(String(8), default="none")  # rdap | whois | none
+    source: Mapped[str] = mapped_column(String(8), default="none")  # whoisxml | rdap | whois | none
     checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    details: Mapped[dict | None] = mapped_column(JSON, nullable=True)  # full WHOIS details (backend flow B3)
+
+
+class AdminUser(Base):
+    """Web admin panel account (Phase 10A): ID + password, separate from the app's Google users."""
+
+    __tablename__ = "admin_users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    username: Mapped[str] = mapped_column(String(64), unique=True, index=True)  # stored lower case
+    password_hash: Mapped[str] = mapped_column(String(255))  # scrypt, never the password itself
+    role: Mapped[str] = mapped_column(String(16), default="reviewer")  # owner | admin | reviewer
+    active: Mapped[bool] = mapped_column(default=True)
+    failed_logins: Mapped[int] = mapped_column(Integer, default=0)
+    locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class AdminSession(Base):
+    """A signed-in admin browser. Only a hash of the cookie value is stored."""
+
+    __tablename__ = "admin_sessions"
+
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)  # sha256 of the cookie value
+    admin_id: Mapped[int] = mapped_column(ForeignKey("admin_users.id", ondelete="CASCADE"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class AuditLog(Base):
+    """Every admin action: who, what, when (Phase 10A)."""
+
+    __tablename__ = "audit_log"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    admin_username: Mapped[str] = mapped_column(String(64), default="", index=True)
+    action: Mapped[str] = mapped_column(String(64))  # e.g. login, login_failed, report_approved
+    detail: Mapped[dict] = mapped_column(JSON, default=dict)
+    ip: Mapped[str] = mapped_column(String(64), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
+class SettingsVersion(Base):
+    """One saved version of the live system settings (Phase 10A step A4). The newest number is in use."""
+
+    __tablename__ = "settings_versions"
+
+    number: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)  # 1, 2, 3...
+    data: Mapped[dict] = mapped_column(JSON)
+    note: Mapped[str] = mapped_column(String(200), default="")
+    created_by: Mapped[str] = mapped_column(String(64), default="")
+    restored_from: Mapped[int | None] = mapped_column(Integer, nullable=True)  # set when made by "undo"
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ApiKey(Base):
+    """An API key set in the admin panel (Phase 10A step A5), stored encrypted. Wins over the .env value."""
+
+    __tablename__ = "api_keys"
+
+    name: Mapped[str] = mapped_column(String(32), primary_key=True)  # otx | whois
+    encrypted: Mapped[str] = mapped_column(Text)  # Fernet token, never the key itself
+    last4: Mapped[str] = mapped_column(String(8), default="")
+    tested_ok: Mapped[bool] = mapped_column(default=False)
+    updated_by: Mapped[str] = mapped_column(String(64), default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class ModelTest(Base):
+    """One test run of an AI model version on the data set (Phase 10A step A5)."""
+
+    __tablename__ = "model_tests"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    version_id: Mapped[str] = mapped_column(String(64), index=True)
+    status: Mapped[str] = mapped_column(String(16), default="running")  # running | done | failed
+    result: Mapped[dict] = mapped_column(JSON, default=dict)
+    started_by: Mapped[str] = mapped_column(String(64), default="")
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class ModelChoice(Base):
+    """Which approved AI model version is in use; the newest row wins (Phase 10A step A5)."""
+
+    __tablename__ = "model_choices"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    version_id: Mapped[str] = mapped_column(String(64))
+    chosen_by: Mapped[str] = mapped_column(String(64), default="")
+    note: Mapped[str] = mapped_column(String(200), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ListEntry(Base):
+    """An admin panel change to a list (Phase 10A step A6): an added entry, or (active=False) a switched-off
+    built-in entry from trusted.json. Lists: trusted_domain, trusted_sender, blocked_domain, blocked_sender."""
+
+    __tablename__ = "list_entries"
+    __table_args__ = (UniqueConstraint("list", "value", name="uq_list_entries_list_value"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    list: Mapped[str] = mapped_column(String(32), index=True)
+    value: Mapped[str] = mapped_column(String(255))  # normalised domain / sender
+    label: Mapped[str] = mapped_column(String(200), default="")  # company (trusted lists) or reason (blocked lists)
+    active: Mapped[bool] = mapped_column(default=True)
+    created_by: Mapped[str] = mapped_column(String(64), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 def make_engine(database_url: str) -> Engine:

@@ -122,7 +122,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                         padding: EdgeInsets.all(16), child: Center(child: CircularProgressIndicator()));
                   }
                   final c = _items[i];
-                  final style = VerdictStyle.of(c.verdict);
+                  final style = VerdictStyle.of(c.level);
                   return Dismissible(
                     key: ValueKey(c.checkId),
                     direction: DismissDirection.endToStart,
@@ -137,7 +137,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
                       leading: Icon(style.icon, color: style.color),
                       title: Text(c.sender.isEmpty ? s.noSender : c.sender, maxLines: 1),
                       subtitle: Text(c.text, maxLines: 2, overflow: TextOverflow.ellipsis),
-                      trailing: Text('${c.score}', style: TextStyle(color: style.color, fontWeight: FontWeight.bold)),
+                      trailing: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.end, children: [
+                        Text('${c.score}%', style: TextStyle(color: style.color, fontWeight: FontWeight.bold)),
+                        Text(s.riskTitle(c.level), style: TextStyle(color: style.color, fontSize: 11)),
+                      ]),
                       onTap: () => _open(c),
                     ),
                   );

@@ -39,6 +39,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final _text = TextEditingController();
   bool _listenerOn = false;
   bool _notifOk = true;
+  bool _contactsOk = true;
   bool _checking = false;
   String? _error;
   CheckResult? _result;
@@ -86,10 +87,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     try {
       final on = await NativeBridge.isListenerEnabled();
       final notif = await NativeBridge.hasNotificationPermission();
+      final contacts = await NativeBridge.hasContactsPermission();
       if (mounted) {
         setState(() {
           _listenerOn = on;
           _notifOk = notif;
+          _contactsOk = contacts;
         });
       }
     } catch (_) {
@@ -243,7 +246,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       onPlus: _pasteFromClipboard,
     );
     final error = _error == null
-        ? const SizedBox.shrink()
+        ? (_checking
+            ? Padding(
+                padding: const EdgeInsets.only(top: 10),
+                child: Text(S.of(context).checkingTakesTime, key: const Key('checkingHint')),
+              )
+            : const SizedBox.shrink())
         : Padding(
             padding: const EdgeInsets.only(top: 10),
             child: Text(_error!, key: const Key('error'), style: TextStyle(color: Theme.of(context).colorScheme.error)),
@@ -252,6 +260,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       protected: protected,
       listenerOn: _listenerOn,
       notifOk: _notifOk,
+      contactsOk: _contactsOk,
       settings: widget.settings,
       onChanged: () => setState(() {}),
     );
@@ -380,6 +389,7 @@ class _ProtectionCard extends StatelessWidget {
   final bool protected;
   final bool listenerOn;
   final bool notifOk;
+  final bool contactsOk;
   final AppSettings settings;
   final VoidCallback onChanged;
 
@@ -387,6 +397,7 @@ class _ProtectionCard extends StatelessWidget {
     required this.protected,
     required this.listenerOn,
     required this.notifOk,
+    this.contactsOk = true,
     required this.settings,
     required this.onChanged,
   });
@@ -419,6 +430,16 @@ class _ProtectionCard extends StatelessWidget {
             const SizedBox(height: 8),
             OutlinedButton(
                 onPressed: NativeBridge.requestNotificationPermission, child: Text(s.allowNotifications)),
+          ],
+          if (!contactsOk) ...[
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              key: const Key('allowContacts'),
+              onPressed: NativeBridge.requestContactsPermission,
+              icon: const Icon(Icons.contacts_outlined),
+              label: Text(s.allowContacts),
+            ),
+            Text(s.allowContactsText, style: Theme.of(context).textTheme.bodySmall),
           ],
           SwitchListTile(
             contentPadding: EdgeInsets.zero,

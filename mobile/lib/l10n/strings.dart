@@ -63,6 +63,9 @@ class S {
           'OTP र बैंकका सन्देशहरू तपाईंकै फोनमा रहन्छन्।');
   String get allowAccess => _t('Allow notification access', 'सूचना पढ्ने अनुमति दिनुहोस्');
   String get allowNotifications => _t('Allow CheckScam notifications', 'CheckScam का सूचनाहरूलाई अनुमति दिनुहोस्');
+  String get allowContacts => _t('Allow contacts (trust people you know)', 'सम्पर्क सूचीलाई अनुमति दिनुहोस् (चिनेका मान्छेलाई भरोसा)');
+  String get allowContactsText => _t('Messages from saved contacts get more trust. Your contacts never leave your phone.',
+      'सम्पर्क सूचीमा भएका मान्छेका सन्देशलाई बढी भरोसा गरिन्छ। तपाईंको सम्पर्क सूची फोनबाहिर कहिल्यै जाँदैन।');
   String get autoCheck => _t('Check new SMS automatically', 'नयाँ SMS आफैं जाँच्ने');
   String get chatApps => _t('Also check WhatsApp, Viber and Messenger', 'WhatsApp, Viber र Messenger पनि जाँच्ने');
   String get wrongResult => _t('Wrong result?', 'नतिजा गलत छ?');
@@ -101,6 +104,19 @@ class S {
         'safe' => _t('Looks safe', 'सुरक्षित देखिन्छ'),
         _ => _t('Unknown', 'थाहा भएन'),
       };
+
+  /// Title for the owner's risk class (B7); an older verdict falls back to verdictTitle.
+  String riskTitle(String level) => switch (level) {
+        'low' => _t('LOW RISK', 'कम जोखिम'),
+        'suspicious' => _t('SUSPICIOUS', 'शंकास्पद'),
+        'high' => _t('HIGH RISK', 'उच्च जोखिम'),
+        'critical' => _t('CRITICAL RISK', 'गम्भीर जोखिम'),
+        'very_harmful' => _t('VERY HARMFUL', 'अत्यन्त हानिकारक'),
+        'unknown' => _t('Not checked', 'जाँच भएन'),
+        _ => verdictTitle(level),
+      };
+
+  String get checkingTakesTime => _t('Checking… this can take up to a minute.', 'जाँच हुँदैछ… एक मिनेटसम्म लाग्न सक्छ।');
 
   String verdictShort(String verdict) => switch (verdict) {
         'dangerous' => _t('dangerous', 'खतरनाक'),
@@ -218,6 +234,8 @@ class S {
       'unreachable' => 'सर्भरमा पुग्न सकिएन।',
       'token' => 'साइन इन नवीकरण गर्न सकिएन। फेरि साइन इन गर्नुहोस्।',
       'signin' => 'फेरि साइन इन गर्नुहोस्।',
+      'blocked' => 'तपाईंको CheckScam खाता रोकिएको छ। सहयोगका लागि सम्पर्क गर्नुहोस्।',
+      'forbidden' => 'यो काम गर्न अनुमति छैन।',
       'not_found' => 'भेटिएन।',
       'too_many' => 'अहिले धेरै जाँच भइरहेका छन्। केही बेर पर्खनुहोस्।',
       'invalid' => 'गलत इनपुट: ${e.message}',
@@ -239,6 +257,16 @@ const _nepaliSuggestions = {
       'सावधान रहनुहोस्। कम्पनीको आधिकारिक नम्बर वा एपबाट पक्का नगरेसम्म लिंक नथिच्नुहोस् र पैसा नपठाउनुहोस्।',
   'No scam signs found. Still, never share your OTP or PIN with anyone.':
       'ठगीका कुनै संकेत भेटिएन। तैपनि आफ्नो OTP वा PIN कसैलाई नदिनुहोस्।',
+  'CheckScam could not check this message. Be careful with links and never share your OTP or PIN.':
+      'CheckScam ले यो सन्देश जाँच्न सकेन। लिंकमा सावधान रहनुहोस् र आफ्नो OTP वा PIN कसैलाई नदिनुहोस्।',
+};
+
+const _nepaliRiskClass = {
+  'LOW': 'कम जोखिम',
+  'SUSPICIOUS': 'शंकास्पद',
+  'HIGH': 'उच्च जोखिम',
+  'CRITICAL': 'गम्भीर जोखिम',
+  'VERY_HARMFUL': 'अत्यन्त हानिकारक',
 };
 
 String? _firstNumber(String s) => RegExp(r'\d+').firstMatch(s)?.group(0);
@@ -251,7 +279,33 @@ String? _nepaliReason(Reason r) {
     final days = _firstNumber(t);
     return days == null ? 'लिंकको डोमेन भर्खरै दर्ता गरिएको हो' : 'लिंकको डोमेन $days दिन अघि मात्र दर्ता गरिएको हो';
   }
+  if (c.startsWith('RISK_')) {
+    final pct = RegExp(r'(\d+)%').firstMatch(t)?.group(1);
+    final name = _nepaliRiskClass[c.substring(5)];
+    return name == null ? null : 'MIRA: $name${pct == null ? '' : ' ($pct%)'}';
+  }
   switch (c) {
+    // the owner's five questions (B7)
+    case 'ASKS_CREDENTIALS':
+      return 'OTP, पासवर्ड वा बैंक सम्बन्धी विवरण माग्छ';
+    case 'OFFERS_PRIZE':
+      return 'पुरस्कार, अफर वा चिट्ठा दिने कुरा गर्छ';
+    case 'BAD_IP_REPUTATION':
+      return 'लिंकको IP को प्रतिष्ठा राम्रो छैन';
+    case 'BAD_DOMAIN':
+      return 'लिंकको डोमेन जानकारी राम्रो छैन';
+    case 'URGENCY':
+      return 'तुरुन्त गर्न दबाब दिन्छ';
+    case 'NOT_CHECKED':
+      return 'MIRA ले यो सन्देश जाँच्न सकेन';
+    // sender trust
+    case 'SENDER_IN_CONTACTS':
+      return 'पठाउने तपाईंको सम्पर्क सूचीमा छ';
+    case 'SENDER_FREQUENT':
+      final n = _firstNumber(t);
+      return 'यो पठाउनेबाट तपाईंलाई प्रायः सन्देश आउँछ${n == null ? '' : ' (पहिले $n वटा)'}';
+    case 'SENDER_NEW':
+      return 'यो पठाउनेबाट आएको पहिलो सन्देश हो';
     case 'MIRA_SCAM':
       return 'सन्देश ठगी जस्तो देखिन्छ${_sure(t)}';
     case 'MIRA_AD':
@@ -269,6 +323,10 @@ String? _nepaliReason(Reason r) {
           : 'सन्देशमा $brand को नाम छ तर लिंक $brand को आधिकारिक साइट होइन';
     case 'GAMBLING_WORDS':
       return 'सन्देशले जुवा वा बेटिङमा बोलाउँछ';
+    case 'BLOCKED_DOMAIN':
+      return 'लिंक CheckScam को रोक-सूचीमा रहेको वेबसाइटमा जान्छ';
+    case 'BLOCKED_SENDER':
+      return 'पठाउने CheckScam को रोक-सूचीमा छ';
     case 'KNOWN_SCAM':
       final pct = RegExp(r'(\d+)%').firstMatch(t)?.group(1);
       return 'पहिले चिनिएको ठगी सन्देशसँग मिल्छ${pct == null ? '' : ' ($pct% मिल्दो)'}';

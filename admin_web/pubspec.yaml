@@ -1,0 +1,25 @@
+# CheckScam web admin panel (Phase 10A): Flutter Web, same purple design as the phone app.
+# Built with: flutter build web --base-href /admin/   -> served by the FastAPI server at /admin
+name: checkscam_admin
+description: "CheckScam web admin panel."
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.13.7
+
+dependencies:
+  flutter:
+    sdk: flutter
+  http: ^1.6.0          # calls to /api/v1/admin (same server, cookie sign-in)
+  url_launcher: ^6.3.2  # opens CSV exports (download in a new tab)
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/logo.png

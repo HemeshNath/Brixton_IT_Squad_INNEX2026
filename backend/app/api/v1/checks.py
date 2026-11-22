@@ -19,6 +19,9 @@ from sqlalchemy.orm import Session
 
 from ...auth import get_current_user
 from ...checks.pipeline import run_check
+from ...checks.owner_decision import config as owner_config
+from ...checks.sender_trust import SenderFacts
+from ...checks.sources import source_name
 from ...checks.textprep import extract_urls, mask_pii
 from ...db import Check, Feedback, Profile, get_db
 
@@ -31,6 +34,9 @@ class SmsCheckIn(BaseModel):
     sender: str = Field(default="", max_length=128)
     source_app: str = Field(default="", max_length=128)
     source: Literal["sms", "notification", "manual"] = "manual"
+    # sender trust, worked out on the phone (contacts never leave it); None = unknown
+    sender_in_contacts: bool | None = None
+    sender_seen_before: int | None = Field(default=None, ge=0, le=1_000_000)
 
 
 class LinkCheckIn(BaseModel):
@@ -44,8 +50,19 @@ class FeedbackIn(BaseModel):
     note: str = Field(default="", max_length=1000)
 
 
+def _owner_fields(c: Check) -> dict:
+    """B6: the owner's output from a saved check - label holds the risk class, reasons the warnings."""
+    classes = {k.id: k.label for k in owner_config().classes}
+    if c.label not in classes:
+        return {"risk_class": None, "risk_label": None, "owner_result": None}
+    warnings = [r.get("text", "") for r in (c.reasons or []) if not str(r.get("code", "")).startswith(("RISK_", "NOT_"))]
+    reason = ", ".join(w[:1].lower() + w[1:] for w in warnings) or owner_config().no_warning_reason
+    return {"risk_class": c.label, "risk_label": classes[c.label],
+            "owner_result": {"Probability": f"{c.score}% ({reason[:1].upper() + reason[1:]})", "Class": classes[c.label]}}
+
+
 def _public(c: Check) -> dict:
-    return {
+    return _owner_fields(c) | {
         "check_id": c.id, "verdict": c.verdict, "score": c.score, "label": c.label,
         "probabilities": c.probabilities, "not_sure": c.not_sure, "reasons": c.reasons,
         "suggestion": c.suggestion, "links": c.links, "checks_skipped": c.checks_skipped,
@@ -55,8 +72,9 @@ def _public(c: Check) -> dict:
 
 
 def _check_and_save(request: Request, db: Session, user: Profile, text: str, sender: str, source: str,
-                    source_app: str = "") -> dict:
-    result = run_check(text, sender, request.app.state.checkers)
+                    source_app: str = "", facts: SenderFacts | None = None) -> dict:
+    result = run_check(text, sender, request.app.state.checkers, source=source_name(source, source_app),
+                       sender_facts=facts)
     settings = request.app.state.settings
     row = Check(
         user_id=user.uid, source=source, source_app=source_app[:128], sender=mask_pii(sender)[:128],
@@ -83,7 +101,8 @@ def _check_and_save(request: Request, db: Session, user: Profile, text: str, sen
 @router.post("/check/sms")
 def check_sms(body: SmsCheckIn, request: Request, user: Profile = Depends(get_current_user), db: Session = Depends(get_db)):
     """Check one SMS. Answers within ~5 s; slow parts are skipped and listed in checks_skipped."""
-    return _check_and_save(request, db, user, body.text, body.sender, body.source, body.source_app)
+    facts = SenderFacts(body.sender_in_contacts, body.sender_seen_before)
+    return _check_and_save(request, db, user, body.text, body.sender, body.source, body.source_app, facts)
 
 
 @router.post("/check/link")

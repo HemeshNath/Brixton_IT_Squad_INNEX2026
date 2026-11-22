@@ -74,6 +74,14 @@ class MainActivity : FlutterActivity() {
                     }
                     result.success(null)
                 }
+                // Sender trust: the contacts permission (contacts are checked on the phone only)
+                "hasContactsPermission" -> result.success(SenderTrust.hasContactsPermission(this))
+                "requestContactsPermission" -> {
+                    if (!SenderTrust.hasContactsPermission(this)) {
+                        requestPermissions(arrayOf(Manifest.permission.READ_CONTACTS), 2)
+                    }
+                    result.success(null)
+                }
                 "openBatterySettings" -> {
                     startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
                     result.success(null)
@@ -91,7 +99,8 @@ class MainActivity : FlutterActivity() {
                     val ctx = applicationContext
                     executor.execute {
                         val skipped = LocalFilter.shouldSkip(msg)
-                        val res = if (skipped) null else ApiClient.checkSms(ctx, GuardConfig.load(ctx), msg, "simulator")
+                        val facts = SenderTrust.facts(ctx, "simulator", msg.sender)
+                        val res = if (skipped) null else ApiClient.checkSms(ctx, GuardConfig.load(ctx), msg, "simulator", facts)
                         if (!skipped) ResultNotifier.show(ctx, msg, res, null, msg.hashCode())
                         runOnUiThread { result.success(if (skipped) "skipped" else (res?.verdict ?: "failed")) }
                     }

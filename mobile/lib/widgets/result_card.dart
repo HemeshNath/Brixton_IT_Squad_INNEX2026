@@ -11,9 +11,14 @@ class VerdictStyle {
   final IconData icon;
   const VerdictStyle(this.color, this.icon);
 
-  static VerdictStyle of(String verdict) => switch (verdict) {
+  /// Colour and icon per owner risk class (B7) or older verdict.
+  static VerdictStyle of(String level) => switch (level) {
+        'very_harmful' => const VerdictStyle(Color(0xFFB71C1C), Icons.dangerous_rounded),
+        'critical' => const VerdictStyle(Color(0xFFD84315), Icons.report_rounded),
+        'high' => const VerdictStyle(Color(0xFFEF6C00), Icons.warning_amber_rounded),
+        'low' => const VerdictStyle(Color(0xFF2E7D32), Icons.verified_user_rounded),
         'dangerous' => const VerdictStyle(Color(0xFFC62828), Icons.dangerous_rounded),
-        'suspicious' => const VerdictStyle(Color(0xFFEF6C00), Icons.warning_amber_rounded),
+        'suspicious' => const VerdictStyle(Color(0xFFF9A825), Icons.help_rounded),
         'safe' => const VerdictStyle(Color(0xFF2E7D32), Icons.verified_user_rounded),
         _ => const VerdictStyle(Colors.grey, Icons.help_outline),
       };
@@ -28,8 +33,10 @@ class ResultCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final s = S.of(context);
-    final style = VerdictStyle.of(result.verdict);
-    final shown = result.reasons.where((r) => r.points > 0 || r.code.startsWith('TRUSTED')).toList();
+    final style = VerdictStyle.of(result.level);
+    final shown = result.riskClass != null || result.verdict == 'unknown'
+        ? result.warnings
+        : result.reasons.where((r) => r.points > 0 || r.code.startsWith('TRUSTED')).toList();
     return Card(
       clipBehavior: Clip.antiAlias,
       child: Column(
@@ -42,7 +49,8 @@ class ResultCard extends StatelessWidget {
               Icon(style.icon, color: Colors.white, size: 36),
               const SizedBox(width: 12),
               Expanded(
-                child: Text(s.verdictTitle(result.verdict),
+                child: Text(s.riskTitle(result.level),
+                    key: const Key('riskTitle'),
                     style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
               ),
               Text('${result.score}/100',
@@ -62,8 +70,9 @@ class ResultCard extends StatelessWidget {
                   Padding(
                     padding: const EdgeInsets.symmetric(vertical: 2),
                     child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Icon(r.points > 0 ? Icons.remove_circle_outline : Icons.check_circle_outline,
-                          size: 18, color: r.points > 0 ? style.color : Colors.green),
+                      // green = a reason for more trust (saved contact, frequent sender: negative points)
+                      Icon(r.code.startsWith('TRUSTED') || r.points < 0 ? Icons.check_circle_outline : Icons.remove_circle_outline,
+                          size: 18, color: r.code.startsWith('TRUSTED') || r.points < 0 ? Colors.green : style.color),
                       const SizedBox(width: 6),
                       Expanded(child: Text(s.reason(r))),
                     ]),
@@ -100,7 +109,7 @@ class ScoreCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final s = S.of(context);
-    final verdictText = s.verdictTitle(result.verdict);
+    final verdictText = s.riskTitle(result.level);
     return Container(
       key: const Key('scoreCard'),
       width: double.infinity,
@@ -167,8 +176,11 @@ class ExplanationText extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final s = S.of(context);
-    final reasons = result.reasons.where((r) => r.points > 0 && !r.code.startsWith('MIRA_NOT_SURE')).toList();
-    final safe = result.reasons.where((r) => r.points <= 0 && r.code.startsWith('TRUSTED')).toList();
+    final owner = result.riskClass != null || result.verdict == 'unknown';
+    final reasons = owner
+        ? result.warnings
+        : result.reasons.where((r) => r.points > 0 && !r.code.startsWith('MIRA_NOT_SURE')).toList();
+    final safe = owner ? const <Reason>[] : result.reasons.where((r) => r.points <= 0 && r.code.startsWith('TRUSTED')).toList();
     final sentences = <String>[
       s.suggestion(result.suggestion),
       ...reasons.map((r) => _sentence(s.reason(r))),

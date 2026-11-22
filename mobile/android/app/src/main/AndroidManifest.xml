@@ -1,6 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Sender trust: is the sender a saved contact? Checked on the phone only; contacts never leave it. -->
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
 
     <!-- usesCleartextTraffic: lets the app reach the laptop over http://<ip>:8000 during
          development. Remove it for release (use the https tunnel / host instead). -->

@@ -16,8 +16,12 @@ class Reason {
 
 class CheckResult {
   final String checkId;
-  final String verdict; // safe | suspicious | dangerous
+  final String verdict; // safe | suspicious | dangerous | unknown
   final int score;
+  /// The owner's risk class (B7): low | suspicious | high | critical | very_harmful (null = MIRA gave no answer).
+  final String? riskClass;
+  /// The owner's output line, e.g. "54% (Shows urgency)".
+  final String? ownerProbability;
   final String? label; // ham | spam | scam
   final List<Reason> reasons;
   final String suggestion;
@@ -37,7 +41,15 @@ class CheckResult {
     this.sender = '',
     this.text = '',
     this.createdAt,
+    this.riskClass,
+    this.ownerProbability,
   });
+
+  /// What the colour and title follow: the risk class when there is one, else the verdict.
+  String get level => riskClass ?? verdict;
+
+  /// The warnings to list (the class itself is shown as the title, so its RISK_ line is left out).
+  List<Reason> get warnings => reasons.where((r) => !r.code.startsWith('RISK_')).toList();
 
   factory CheckResult.fromJson(Map<String, dynamic> j) => CheckResult(
         checkId: j['check_id'] as String? ?? '',
@@ -52,5 +64,7 @@ class CheckResult {
         sender: j['sender'] as String? ?? '',
         text: j['text'] as String? ?? '',
         createdAt: DateTime.tryParse(j['created_at'] as String? ?? ''),
+        riskClass: j['risk_class'] as String?,
+        ownerProbability: (j['owner_result'] as Map?)?['Probability'] as String?,
       );
 }

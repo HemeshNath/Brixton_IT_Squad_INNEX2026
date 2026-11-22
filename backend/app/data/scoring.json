@@ -1,6 +1,6 @@
 {
   "_note": "How the final score is made (Phase 8). Change numbers here - no code change. Raise 'version' on every change; it is saved with every check. Tuned with real data in phase L1.",
-  "version": "s3",
+  "version": "s4",
   "cutoffs": {
     "_note": "score 0..safe_max = Safe, ..suspicious_max = Suspicious, above = Dangerous",
     "safe_max": 30,
@@ -29,7 +29,9 @@
   "rules": {
     "asks_secret": 15,
     "brand_mismatch": 30,
-    "gambling_words": 15
+    "gambling_words": 15,
+    "blocked": 100,
+    "_note_blocked": "Phase 10A: a link to a blocked site or a message from a blocked sender (admin panel block lists). Always Dangerous; these points also show in the score."
   },
   "known_scam": {
     "_note": "Phase 10: similarity (letter patterns, 0-1) to an approved known scam. Normal messages scored <= 0.26 on the seed data, re-worded scams >= 0.41.",

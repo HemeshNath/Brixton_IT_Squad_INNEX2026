@@ -6,7 +6,8 @@ Parts of the score:
   links       the worst link's rule / OTX / domain-age points (one bad link counts, not the sum of all)
   rules       asks for OTP/PIN, brand mismatch, gambling words
   memory      very similar to an approved known scam (Phase 10)
-  hard rules  OTP request + non-official link -> at least Dangerous;
+  hard rules  blocked site or sender (admin block lists) -> at least Dangerous;
+              OTP request + non-official link -> at least Dangerous;
               registered company sender + only official links + asks nothing -> at most Safe
 Pure function, so every boundary can be unit tested."""
 from __future__ import annotations
@@ -29,6 +30,7 @@ class ScoreInput:
     brand_mismatch: list[str] = field(default_factory=list)
     gambling: bool = False
     known_similarity: float = 0.0  # best similarity to a known scam (0 = none / not checked)
+    sender_blocked: bool = False  # sender is on the admin panel block list (Phase 10A)
 
 
 def verdict_for(score: int, cfg: ScoringConfig | None = None) -> str:
@@ -106,6 +108,8 @@ def score_message(inp: ScoreInput, cfg: ScoringConfig | None = None) -> dict:
                               cfg.rules["brand_mismatch"]))
     if inp.gambling:
         reasons.append(Reason("GAMBLING_WORDS", "Message invites you to gambling or betting", cfg.rules["gambling_words"]))
+    if inp.sender_blocked:
+        reasons.append(Reason("BLOCKED_SENDER", "Sender is on CheckScam's block list", int(cfg.rules.get("blocked", 100))))
     known = _known_scam_points(inp.known_similarity, cfg)
     if known:
         reasons.append(Reason("KNOWN_SCAM", f"Matches a known scam message ({inp.known_similarity:.0%} alike)", known))
@@ -120,12 +124,15 @@ def score_message(inp: ScoreInput, cfg: ScoringConfig | None = None) -> dict:
     score = max(0, min(100, sum(r.points for r in reasons)))
 
     # Hard rules (decided by facts, never by MIRA alone)
+    blocked = inp.sender_blocked or any(l.blocked for l in inp.links)
+    if blocked and score <= cfg.suspicious_max:  # the admins' block lists always win
+        score = cfg.suspicious_max + 1
     if cfg.hard_rules.get("otp_and_unofficial_link") and inp.asks_secret and unofficial_links:
         if score <= cfg.suspicious_max:
             score = cfg.suspicious_max + 1
         reasons.append(Reason("HARD_OTP_LINK", "Asks for an OTP/PIN and links to a site that is not official", 0))
     elif (cfg.hard_rules.get("trusted_sender_official_only") and inp.sender_trusted and not unofficial_links
-          and not inp.asks_secret and not inp.brand_mismatch and not known):
+          and not inp.asks_secret and not inp.brand_mismatch and not known and not blocked):
         score = min(score, cfg.safe_max)
 
     verdict = verdict_for(score, cfg)

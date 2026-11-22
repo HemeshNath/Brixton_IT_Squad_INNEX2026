@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from datetime import datetime, timedelta, timezone
 
 from fastapi import Depends, HTTPException, Request, status
 from sqlalchemy import select
@@ -62,13 +63,30 @@ def get_or_create_profile(db: Session, uid: str, email: str) -> Profile:
         return db.scalars(select(Profile).where(Profile.uid == uid)).one()
 
 
+LAST_SEEN_EVERY = timedelta(minutes=5)  # write last_seen_at at most this often per user
+
+
+def _active(db: Session, profile: Profile) -> Profile:
+    """Refuses blocked users (403) and notes when the user was last seen (Phase 10A, admin panel)."""
+    if profile.blocked:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Your CheckScam account is blocked. Please contact support.")
+    now = datetime.now(timezone.utc)
+    seen = profile.last_seen_at
+    if seen is not None and seen.tzinfo is None:
+        seen = seen.replace(tzinfo=timezone.utc)
+    if seen is None or now - seen > LAST_SEEN_EVERY:
+        profile.last_seen_at = now
+        db.commit()
+    return profile
+
+
 def get_current_user(request: Request, db: Session = Depends(get_db)) -> Profile:
     settings: Settings = request.app.state.settings
 
     dev_user = request.headers.get("X-Dev-User", "").strip()
     if dev_user and settings.dev_auth_active:
         name = dev_user[:100]
-        return get_or_create_profile(db, f"dev:{name}", f"{name}@dev.local")
+        return _active(db, get_or_create_profile(db, f"dev:{name}", f"{name}@dev.local"))
 
     header = request.headers.get("Authorization", "")
     if not header:
@@ -89,4 +107,4 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> Profile
     uid = decoded.get("uid") or decoded.get("user_id") or decoded.get("sub")
     if not uid:
         raise _unauthorized("Token has no user id.")
-    return get_or_create_profile(db, uid, decoded.get("email", ""))
+    return _active(db, get_or_create_profile(db, uid, decoded.get("email", "")))

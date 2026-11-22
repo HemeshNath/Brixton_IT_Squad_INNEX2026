@@ -1,0 +1,42 @@
+we are assessiting various instant messaging application and their incoming messages the task is to flag any suspicious message.
+
+Context:
+Source: ${source}
+Content: ${content}
+URL: ${url}
+IP Reputation: ${ip_reputation}
+Domain Information: ${domain_information}
+
+Example:
+{
+"Content" : "दाइ मा अस्पताल मा छु दुर्घटना भको छ रु १०,००० पठाउ त एकदम जरुरी छ ।",
+"IP Reputation" : "No IP",
+"Domain Information" : "No Domain"
+}
+{
+"Probability" : "50% (Urgency is show may be fake)",
+"Class" : "Hi Risk"
+}
+{
+"Content" : "https://gzukw.buzz/lCNnbWPxgz/np-en?1121151371053211318&s=ms&t=1795230523& 🎉१७औँ वार्षिकोत्सवको अवसरमा रु. १,७०० निःशुल्क प्राप्त गर्नुहोस्!💸 gzukw.buzz",
+"IP Reputation" : "0 Pulses 7 Passive DNS 0 URLS 0 Files",
+"Domain Information" : "Domain Information Domain: gzukw.buzz Registered On: 2026-10-19 Expires On: 2027-10-19 Updated On: 2026-10-24 Status: client transfer prohibited server transfer prohibited Name Servers: adi.ns.cloudflare.com mario.ns.cloudflare.com Registrar Information Registrar: NameSilo, LLC IANA ID: 1479 Email: admin-ari@namesilo.com Abuse Email: abuse@namesilo.com Abuse Phone: +1.4805240066 Registrant Contact Name: Privacy User #ccbacac4 Organization: See PrivacyGuardian.org Street: PMB# 255 1928 E. Highland Ave. Ste F104 City: Phoenix State: AZ Postal Code: 85016 Country: US Phone: +1.3478717726 Email: email@privacyguardian.org Administrative Contact Name: Privacy User #ccbacac4 Organization: See PrivacyGuardian.org Street: PMB# 255 1928 E. Highland Ave. Ste F104 City: Phoenix State: AZ Postal Code: 85016 Country: US Phone: +1.3478717726 Email: email@privacyguardian.org Technical Contact Name: Privacy User #ccbacac4 Organization: See PrivacyGuardian.org Street: PMB# 255 1928 E. Highland Ave. Ste F104 City: Phoenix State: AZ Postal Code: 85016 Country: US Phone: +1.3478717726 Email: email@privacyguardian.org"
+}
+{
+"Probability" : "100%",
+"Class" : "Very harmful"
+}
+
+- 0–20: LOW RISK
+- 21–40: SUSPICIOUS
+- 41–60: HIGH RISK
+- 61–80: CRITICAL RISK
+- 81–100: very harful
+
+Questions:
+
+1. Does this SMS ask for any OTP, Password or personal and bank related credecials
+2. Does this SMS offering Prize, Offer, Lotery
+3. Does this SMS IP have good Reputation
+4. Does this SMS have good domain information (bad like: registered under 15 days, does this domain is registered by the non-nepalise citizen
+5. Does this SMS have Urgency

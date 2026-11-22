@@ -22,7 +22,11 @@ from dataclasses import dataclass, field
 
 log = logging.getLogger("checkscam.mira")
 
-MAX_TOKENS = 512  # longer pairs are cut; SMS + options fit easily
+# Backend flow B5: the owner's prompt is ~900-1,500 tokens (full WHOIS + two examples), so pairs may be long.
+# A pair longer than this keeps the start and the end of the state (the question) and the whole option; only the
+# middle of the state is dropped (see _fit), so an answer option is never cut off.
+MAX_TOKENS = 4096
+KEEP_END_TOKENS = 200  # the end of a too-long state that is always kept (the question asked)
 
 
 class MiraUnavailable(Exception):
@@ -107,6 +111,20 @@ class MiraModel:
         hidden[torch.tensor(order)] = sorted_hidden
         return hidden
 
+    def _fit(self, state: str, option: str) -> str:
+        """The state, shortened in the middle if state + option would be longer than MAX_TOKENS."""
+        encode = getattr(self.tokenizer, "encode", None)
+        if encode is None:  # simple test tokenizers
+            return state
+        ids = encode(state, add_special_tokens=False)
+        room = MAX_TOKENS - len(encode(option, add_special_tokens=False)) - 8  # [CLS], [SEP]s, " ... "
+        if len(ids) <= room:
+            return state
+        keep_end = min(KEEP_END_TOKENS, room // 2)
+        head, tail = ids[:room - keep_end], ids[-keep_end:]
+        log.info("MIRA state cut in the middle: %d -> %d tokens", len(ids), room)
+        return f"{self.tokenizer.decode(head)} ... {self.tokenizer.decode(tail)}"
+
     def temperature(self, kind: str) -> float:
         return float(self.temperatures.get(kind, self.temperatures.get("plain", 1.0)))
 
@@ -118,7 +136,7 @@ class MiraModel:
             if not q.options:
                 raise ValueError("a question needs at least one option")
             start = len(texts)
-            texts += [f"{q.state} [SEP] {opt}" for opt in q.options]
+            texts += [f"{self._fit(q.state, opt)} [SEP] {opt}" for opt in q.options]
             spans.append((start, len(texts)))
         t0 = time.perf_counter()
         with torch.inference_mode():
@@ -151,8 +169,9 @@ class MiraModel:
 class MiraService:
     """Owns the model for the running server: background loading, one worker thread, time limit."""
 
-    def __init__(self, loader, timeout: float = 3.0, enabled: bool = True):
+    def __init__(self, loader, timeout: float = 3.0, enabled: bool = True, warmup=None):
         self._loader = loader  # callable returning a MiraModel
+        self.warmup = warmup  # optional callable(model): one practice call before "ready" (first calls are slow)
         self.timeout = timeout
         self.enabled = enabled
         self.model: MiraModel | None = None
@@ -184,6 +203,13 @@ class MiraService:
         t0 = time.perf_counter()
         try:
             self.model = self._loader()
+            if self.warmup is not None:
+                try:
+                    t1 = time.perf_counter()
+                    self.warmup(self.model)
+                    log.info("MIRA warm-up done in %.1f s", time.perf_counter() - t1)
+                except Exception as exc:  # a failed warm-up never blocks MIRA
+                    log.warning("MIRA warm-up failed: %s", type(exc).__name__)
             self.load_seconds = round(time.perf_counter() - t0, 1)
             self.status = "ready"
             log.info("MIRA loaded (%s) in %.1f s", self.model.version, self.load_seconds)

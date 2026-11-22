@@ -13,6 +13,13 @@ from .config_data import load_json, trusted
 from .links import LinkResult
 
 SCORING_FILE = "scoring.json"
+_override: dict | None = None  # live settings from the admin panel (Phase 10A); None = scoring.json
+
+
+def set_scoring_override(data: dict | None) -> None:
+    """Admin panel settings replace scoring.json while the server runs (None = back to the file)."""
+    global _override
+    _override = data
 
 GAMBLING_RE = re.compile(
     r"\b(casino|betting|bet now|place a bet|slots?|jackpot|poker|roulette|baccarat|teen ?patti|aviator|1xbet|"
@@ -35,7 +42,7 @@ class ScoringConfig:
 
 
 def scoring_config() -> ScoringConfig:
-    d = load_json(SCORING_FILE)
+    d = _override if _override is not None else load_json(SCORING_FILE)
     try:
         cfg = ScoringConfig(
             version=d["version"],

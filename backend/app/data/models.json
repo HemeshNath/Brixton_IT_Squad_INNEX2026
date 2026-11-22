@@ -1,0 +1,12 @@
+{
+  "_note": "Approved AI model versions for the admin panel (Phase 10A step A5). Only versions listed here can be chosen. Pin every version to an exact revision (commit hash) and download it into HF_HOME before approving it.",
+  "versions": [
+    {
+      "id": "mira-v1-610544e",
+      "label": "MIRA v1 (pinned revision, tested in Phases 6-8)",
+      "model_id": "sagea-ai/Mira-v1",
+      "revision": "610544ecbcf6e7c0103c9b75543dcaab7ec0739d",
+      "approved": true
+    }
+  ]
+}

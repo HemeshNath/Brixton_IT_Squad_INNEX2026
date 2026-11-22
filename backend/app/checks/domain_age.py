@@ -1,9 +1,12 @@
-"""Domain age (Phase 5): when was a link's domain registered?
+"""Domain age (Phase 5) and full WHOIS details (backend flow B3): when and by whom was a link's domain registered?
 
 Scam sites are usually only days or weeks old. Order of lookups:
 1. cache (domain_cache table, domain_cache_days)
-2. RDAP via rdap.org (modern, free JSON version of WHOIS; redirects to the right registry)
-3. classic WHOIS on port 43 (whois.iana.org tells which server handles the TLD)
+2. WhoisXML API when its key is set
+3. RDAP via rdap.org (modern, free JSON version of WHOIS; redirects to the right registry), plus the registrar's
+   own RDAP record for the contacts
+4. classic WHOIS on port 43 (whois.iana.org tells which server handles the TLD)
+Each answer also carries WhoisDetails (whois_details.py) - the "Domain Information" text for MIRA's prompt.
 Domains with no public data (most .np domains) are "unknown" and never counted as risky.
 Any network problem raises DomainAgeUnavailable so the check is marked skipped, never crashes."""
 from __future__ import annotations
@@ -19,6 +22,9 @@ from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
 from ..db import DomainCache
+from .memcache import MemoryCache, save_later
+from .whois_details import (WhoisDetails, parse_rdap_details, parse_whois_text_details, parse_whoisxml_details,
+                            registrar_rdap_url, render)
 
 log = logging.getLogger("checkscam.domain_age")
 
@@ -62,8 +68,14 @@ class DomainAge:
     registered_at: datetime | None = None
     expires_at: datetime | None = None
     registrar: str | None = None
-    source: str = "none"  # rdap | whois | none (no public data)
+    source: str = "none"  # whoisxml | rdap | whois | none (no public data)
     from_cache: bool = False
+    details: WhoisDetails | None = None  # full WHOIS details (B3); None = no public data
+
+    @property
+    def text(self) -> str | None:
+        """Full WHOIS details in the owner's layout, or None when there is no public data."""
+        return render(self.details) if self.details else None
 
     def age_days(self, now: datetime | None = None) -> int | None:
         if self.registered_at is None:
@@ -110,6 +122,22 @@ def parse_rdap(domain: str, data: dict) -> DomainAge:
     )
 
 
+WHOISXML_URL = "https://www.whoisxmlapi.com/whoisserver/WhoisService"
+
+
+def parse_whoisxml(domain: str, data: dict) -> DomainAge:
+    """WhoisXML API answer (JSON). Dates may sit in WhoisRecord or in its registryData."""
+    rec = data.get("WhoisRecord") or {}
+    reg = rec.get("registryData") or {}
+    return DomainAge(
+        domain=domain,
+        registered_at=parse_date(rec.get("createdDate") or reg.get("createdDate")),
+        expires_at=parse_date(rec.get("expiresDate") or reg.get("expiresDate")),
+        registrar=(rec.get("registrarName") or reg.get("registrarName") or None),
+        source="whoisxml",
+    )
+
+
 def parse_whois(domain: str, text: str) -> DomainAge:
     created = CREATED_RE.search(text)
     expires = EXPIRES_RE.search(text)
@@ -147,47 +175,89 @@ class DomainAgeClient:
         timeout: float = 10.0,
         cache_days: int = 7,
         http: httpx.Client | None = None,
+        whois_api_key: str = "",
+        save_in_background: bool = False,
     ):
+        self.save_in_background = save_in_background  # the server: True (checks never wait for the save)
+        self.memory = MemoryCache()  # answers also kept in memory: the database is far away (B3 speed)
         self.session_factory = session_factory
         self.timeout = timeout
         self.cache_days = cache_days
         self.http = http or httpx.Client(timeout=timeout, follow_redirects=True)
+        self.whois_api_key = whois_api_key  # WhoisXML API key from the admin panel / .env ("" = free lookups only)
 
     def lookup(self, domain: str) -> DomainAge:
         domain = domain.lower().strip(".")
-        with self.session_factory() as session:
+        hit = self.memory.get(domain)
+        if hit is not None:
+            return hit
+
+        with self.session_factory() as session:  # short: the connection goes back before the slow lookup
             row = session.get(DomainCache, domain)
             if row is not None:
                 checked = row.checked_at if row.checked_at.tzinfo else row.checked_at.replace(tzinfo=timezone.utc)
-                if datetime.now(timezone.utc) - checked < timedelta(days=self.cache_days):
-                    return DomainAge(domain, _utc(row.registered_at), _utc(row.expires_at), row.registrar,
-                                     row.source, from_cache=True)
+                left = timedelta(days=self.cache_days) - (datetime.now(timezone.utc) - checked)
+                # rows saved before B3 have no details -> look the domain up again
+                if left.total_seconds() > 0 and (row.details or row.source == "none"):
+                    details = WhoisDetails.from_dict(row.details) if row.details else None
+                    info = DomainAge(domain, _utc(row.registered_at), _utc(row.expires_at), row.registrar,
+                                     row.source, from_cache=True, details=details)
+                    self.memory.put(domain, info, left.total_seconds())
+                    return info
 
-            info = self._fetch(domain)
-            try:
-                session.merge(DomainCache(
-                    domain=domain, registered_at=info.registered_at, expires_at=info.expires_at,
-                    registrar=info.registrar, source=info.source, checked_at=datetime.now(timezone.utc),
-                ))
-                session.commit()
-            except IntegrityError:  # a parallel lookup of the same domain saved it first - fine
-                session.rollback()
-            except OperationalError:  # database connection problem: keep the answer, skip caching it
-                session.rollback()
-                log.warning("could not save the domain age to the cache")
-            return info
+        info = self._fetch(domain)
+        self.memory.put(domain, DomainAge(info.domain, info.registered_at, info.expires_at, info.registrar,
+                                          info.source, from_cache=True, details=info.details),
+                        self.cache_days * 86400)
+
+        def store() -> None:
+            with self.session_factory() as session:
+                try:
+                    session.merge(DomainCache(
+                        domain=domain, registered_at=info.registered_at, expires_at=info.expires_at,
+                        registrar=info.registrar, source=info.source, checked_at=datetime.now(timezone.utc),
+                        details=info.details.to_dict() if info.details else None,
+                    ))
+                    session.commit()
+                except IntegrityError:  # a parallel lookup of the same domain saved it first - fine
+                    session.rollback()
+                except OperationalError:  # database connection problem: keep the answer, skip caching it
+                    session.rollback()
+                    log.warning("could not save the domain age to the cache")
+
+        if self.save_in_background:
+            save_later(store)
+        else:
+            store()
+        return info
 
     def _fetch(self, domain: str) -> DomainAge:
         if domain.rsplit(".", 1)[-1] in NO_PUBLIC_DATA_TLDS:
             return DomainAge(domain)  # unknown, no network call
+
+        # Paid WHOIS API first when its key is set (Phase 10A); any problem -> the free lookups below
+        if self.whois_api_key:
+            try:
+                resp = self.http.get(WHOISXML_URL, timeout=self.timeout, params={
+                    "apiKey": self.whois_api_key, "domainName": domain, "outputFormat": "JSON"})
+                if resp.status_code == 200:
+                    data = resp.json()
+                    info = parse_whoisxml(domain, data)
+                    if info.registered_at:
+                        info.details = parse_whoisxml_details(domain, data)
+                        return info
+            except (httpx.HTTPError, ValueError):
+                log.info("WhoisXML API lookup failed; using RDAP/WHOIS")
 
         rdap_failed = False
         try:
             resp = self.http.get(RDAP_URL.format(domain=domain), timeout=self.timeout,
                                  headers={"Accept": "application/rdap+json"})
             if resp.status_code == 200:
-                info = parse_rdap(domain, resp.json())
+                data = resp.json()
+                info = parse_rdap(domain, data)
                 if info.registered_at:
+                    info.details = self._rdap_details(domain, data)
                     return info
             elif resp.status_code != 404:
                 rdap_failed = True
@@ -212,7 +282,22 @@ class DomainAgeClient:
 
         if NOT_FOUND_RE.search(text) and not CREATED_RE.search(text):
             return DomainAge(domain, source="whois")  # registry says: no such domain
-        return parse_whois(domain, text)
+        info = parse_whois(domain, text)
+        info.details = parse_whois_text_details(domain, text)
+        return info
+
+    def _rdap_details(self, domain: str, registry: dict) -> WhoisDetails:
+        """Registry RDAP details, with the contacts (and anything else missing) from the registrar's RDAP record."""
+        details = parse_rdap_details(domain, registry)
+        url = registrar_rdap_url(registry)
+        if url:
+            try:
+                resp = self.http.get(url, timeout=self.timeout, headers={"Accept": "application/rdap+json"})
+                if resp.status_code == 200:
+                    details.fill_missing(parse_rdap_details(domain, resp.json()))
+            except (httpx.HTTPError, ValueError):
+                log.info("registrar RDAP lookup failed; registry details only")
+        return details
 
 
 def _utc(dt: datetime | None) -> datetime | None:
