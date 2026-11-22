@@ -8,6 +8,7 @@ import 'package:http/http.dart' as http;
 import '../services/api.dart';
 import '../services/auth_service.dart';
 import '../services/settings.dart';
+import '../theme/app_theme.dart';
 
 class SetupScreen extends StatefulWidget {
   final AppSettings settings;
@@ -15,7 +16,13 @@ class SetupScreen extends StatefulWidget {
   final VoidCallback onDone;
   final http.Client? client; // injected in tests
 
-  const SetupScreen({super.key, required this.settings, required this.auth, required this.onDone, this.client});
+  const SetupScreen({
+    super.key,
+    required this.settings,
+    required this.auth,
+    required this.onDone,
+    this.client,
+  });
 
   @override
   State<SetupScreen> createState() => _SetupScreenState();
@@ -56,99 +63,147 @@ class _SetupScreenState extends State<SetupScreen> {
   }
 
   Future<void> _googleSignIn() => _run(() async {
-        final base = await _checkServer();
-        if (base == null) return;
-        final email = await widget.auth.signInWithGoogle();
-        if (email == null) return; // user closed the account picker
-        try {
-          await ApiService(client: _client, baseUrl: base, tokenProvider: widget.auth.idToken).me();
-        } on ApiException catch (e) {
-          await widget.auth.signOut(); // keep app and server in step
-          if (e.statusCode == 503) {
-            throw ApiException('The server is not set up for Google sign-in yet (FIREBASE_CREDENTIALS).', 503);
-          }
-          rethrow;
-        }
-        await widget.settings.setApiBaseUrl(base);
-        await widget.settings.setDevUser('');
-        widget.onDone();
-      });
+    final base = await _checkServer();
+    if (base == null) return;
+    final email = await widget.auth.signInWithGoogle();
+    if (email == null) return; // user closed the account picker
+    try {
+      await ApiService(
+        client: _client,
+        baseUrl: base,
+        tokenProvider: widget.auth.idToken,
+      ).me();
+    } on ApiException catch (e) {
+      await widget.auth.signOut(); // keep app and server in step
+      if (e.statusCode == 503) {
+        throw ApiException(
+          'The server is not set up for Google sign-in yet (FIREBASE_CREDENTIALS).',
+          503,
+        );
+      }
+      rethrow;
+    }
+    await widget.settings.setApiBaseUrl(base);
+    await widget.settings.setDevUser('');
+    widget.onDone();
+  });
 
   Future<void> _devSignIn() => _run(() async {
-        final name = _name.text.trim();
-        if (name.isEmpty) {
-          setState(() => _error = 'Enter a name for the development sign-in.');
-          return;
-        }
-        final base = await _checkServer();
-        if (base == null) return;
-        await ApiService(client: _client, baseUrl: base, devUser: name).me();
-        await widget.settings.setApiBaseUrl(base);
-        await widget.settings.setDevUser(name);
-        widget.onDone();
-      });
+    final name = _name.text.trim();
+    if (name.isEmpty) {
+      setState(() => _error = 'Enter a name for the development sign-in.');
+      return;
+    }
+    final base = await _checkServer();
+    if (base == null) return;
+    await ApiService(client: _client, baseUrl: base, devUser: name).me();
+    await widget.settings.setApiBaseUrl(base);
+    await widget.settings.setDevUser(name);
+    widget.onDone();
+  });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Scaffold(
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.all(24),
-          children: [
-            const SizedBox(height: 32),
-            Icon(Icons.shield_rounded, size: 72, color: theme.colorScheme.primary),
-            const SizedBox(height: 12),
-            Text('CheckScam', textAlign: TextAlign.center, style: theme.textTheme.headlineMedium),
-            const SizedBox(height: 4),
-            const Text('Scam protection for your messages', textAlign: TextAlign.center),
-            const SizedBox(height: 32),
-            TextField(
-              key: const Key('serverInput'),
-              controller: _server,
-              keyboardType: TextInputType.url,
-              decoration: const InputDecoration(
-                labelText: 'Server address',
-                hintText: '192.168.1.5:8000 or https://xyz.trycloudflare.com',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 24),
-            FilledButton.icon(
-              key: const Key('googleButton'),
-              onPressed: _busy || !widget.auth.googleAvailable ? null : _googleSignIn,
-              icon: _busy
-                  ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                  : const Icon(Icons.account_circle),
-              label: const Text('Sign in with Google'),
-            ),
-            if (!widget.auth.googleAvailable) ...[
-              const SizedBox(height: 8),
-              Text('Google sign-in is not set up in this build yet.',
-                  key: const Key('googleUnavailable'), textAlign: TextAlign.center, style: theme.textTheme.bodySmall),
-            ],
-            if (_error != null) ...[
-              const SizedBox(height: 12),
-              Text(_error!, key: const Key('setupError'), style: TextStyle(color: theme.colorScheme.error)),
-            ],
-            if (kDebugMode) ...[
+      body: WaveBackground(
+        child: SafeArea(
+          child: ListView(
+            padding: const EdgeInsets.all(24),
+            children: [
               const SizedBox(height: 32),
-              const Divider(),
-              Text('Development sign-in (debug builds only)', style: theme.textTheme.labelLarge),
+              const Center(child: CheckScamMark(size: 72)),
               const SizedBox(height: 8),
+              Center(
+                child: RichText(
+                  text: const TextSpan(
+                    style: TextStyle(fontSize: 30, fontWeight: FontWeight.w700),
+                    children: [
+                      TextSpan(
+                        text: 'Check',
+                        style: TextStyle(color: AppColors.ink),
+                      ),
+                      TextSpan(
+                        text: 'Scam',
+                        style: TextStyle(color: AppColors.purpleDark),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 4),
+              const Text(
+                'Scam protection for your messages',
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 32),
               TextField(
-                key: const Key('devNameInput'),
-                controller: _name,
-                decoration: const InputDecoration(labelText: 'Your name', border: OutlineInputBorder()),
+                key: const Key('serverInput'),
+                controller: _server,
+                keyboardType: TextInputType.url,
+                decoration: const InputDecoration(
+                  labelText: 'Server address',
+                  hintText: '192.168.1.5:8000 or https://xyz.trycloudflare.com',
+                  border: OutlineInputBorder(),
+                ),
               ),
-              const SizedBox(height: 8),
-              OutlinedButton(
-                key: const Key('devButton'),
-                onPressed: _busy ? null : _devSignIn,
-                child: const Text('Use development sign-in'),
+              const SizedBox(height: 24),
+              FilledButton.icon(
+                key: const Key('googleButton'),
+                onPressed: _busy || !widget.auth.googleAvailable
+                    ? null
+                    : _googleSignIn,
+                icon: _busy
+                    ? const SizedBox(
+                        height: 18,
+                        width: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.account_circle),
+                label: const Text('Sign in with Google'),
               ),
+              if (!widget.auth.googleAvailable) ...[
+                const SizedBox(height: 8),
+                Text(
+                  'Google sign-in is not set up in this build yet.',
+                  key: const Key('googleUnavailable'),
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.bodySmall,
+                ),
+              ],
+              if (_error != null) ...[
+                const SizedBox(height: 12),
+                Text(
+                  _error!,
+                  key: const Key('setupError'),
+                  style: TextStyle(color: theme.colorScheme.error),
+                ),
+              ],
+              if (kDebugMode) ...[
+                const SizedBox(height: 32),
+                const Divider(),
+                Text(
+                  'Development sign-in (debug builds only)',
+                  style: theme.textTheme.labelLarge,
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  key: const Key('devNameInput'),
+                  controller: _name,
+                  decoration: const InputDecoration(
+                    labelText: 'Your name',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                OutlinedButton(
+                  key: const Key('devButton'),
+                  onPressed: _busy ? null : _devSignIn,
+                  child: const Text('Use development sign-in'),
+                ),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );

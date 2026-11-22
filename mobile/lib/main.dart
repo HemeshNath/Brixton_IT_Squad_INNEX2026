@@ -9,6 +9,7 @@ import 'screens/setup_screen.dart';
 import 'services/api.dart';
 import 'services/auth_service.dart';
 import 'services/settings.dart';
+import 'theme/app_theme.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -45,8 +46,8 @@ class _CheckScamAppState extends State<CheckScamApp> {
     return MaterialApp(
       title: 'CheckScam',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(colorSchemeSeed: const Color(0xFF1565C0), useMaterial3: true),
-      darkTheme: ThemeData(colorSchemeSeed: const Color(0xFF1565C0), brightness: Brightness.dark, useMaterial3: true),
+      theme: AppTheme.light(), // team design: purple, light
+      themeMode: ThemeMode.light,
       home: _signedIn
           ? HomeScreen(
               settings: widget.settings,

@@ -21,7 +21,8 @@ import java.util.concurrent.TimeUnit
 
 data class IncomingMessage(val sender: String, val text: String)
 
-data class CheckResult(val verdict: String, val score: Int, val suggestion: String, val topReason: String?)
+/** Server verdict. `raw` is the full JSON answer, handed to the app's result screen when the notification is tapped. */
+data class CheckResult(val verdict: String, val score: Int, val suggestion: String, val topReason: String?, val raw: String = "")
 
 /** Settings written by the Flutter side through shared_preferences ("flutter." prefix). */
 data class GuardConfig(
@@ -145,7 +146,7 @@ object ApiClient {
                     if (r.optInt("points") > best) { best = r.optInt("points"); top = r.optString("text") }
                 }
             }
-            CheckResult(json.optString("verdict", "unknown"), json.optInt("score"), json.optString("suggestion"), top)
+            CheckResult(json.optString("verdict", "unknown"), json.optInt("score"), json.optString("suggestion"), top, json.toString())
         } catch (e: Exception) {
             Log.w(SmsGuardService.TAG, "Check failed: ${e.javaClass.simpleName}")
             null
@@ -187,15 +188,26 @@ object ResultNotifier {
             }
             if (result == null) append("\n\nCheckScam could not check this message (no connection).")
         }
+        // Tapping a warning opens CheckScam on the result screen for THIS message. Each notification gets its
+        // own request code, so the results of two notifications never overwrite each other.
+        val appIntent = Intent(ctx, MainActivity::class.java).apply {
+            action = MainActivity.ACTION_OPEN_CHECK
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            if (result != null) {
+                putExtra(MainActivity.EXTRA_CHECK_JSON, result.raw)
+                putExtra(MainActivity.EXTRA_MESSAGE, msg.text)    // original text, shown only on this phone
+                putExtra(MainActivity.EXTRA_SENDER, msg.sender)
+                openOriginal?.let { putExtra(MainActivity.EXTRA_OPEN_ORIGINAL, it) }
+            }
+        }
         val openApp = PendingIntent.getActivity(
-            ctx, 0, Intent(ctx, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            ctx, id, appIntent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         // Tapping a safe message opens the SMS thread; a risky one opens CheckScam first.
         val tap = if (result?.verdict == "safe" || result == null) openOriginal ?: openApp else openApp
 
         val notification = Notification.Builder(ctx, CHANNEL_ID)
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.ic_notification) // white S silhouette (status bar icon)
             .setContentTitle(title)
             .setContentText(msg.text)
             .setStyle(Notification.BigTextStyle().bigText(details))
